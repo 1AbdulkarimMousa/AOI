@@ -40,6 +40,42 @@ export const fallbackDashboard = {
     { id: "p4", code: "H4", name: "Repeatability", sequence: 4, confidence: 22, status: "not_validated", evidenceCount: 11, counterevidenceCount: 4, nextAction: "Begin four-week home-use cohort" },
     { id: "p5", code: "H5", name: "Value Exchange", sequence: 5, confidence: 18, status: "not_validated", evidenceCount: 7, counterevidenceCount: 3, nextAction: "Launch price and commitment test" },
   ],
+  segments: [
+    { id: "seg-1", code: "families", name: "Families with Children", audienceType: "consumer" },
+    { id: "seg-2", code: "orthodontic", name: "Adult Orthodontic Patients", audienceType: "consumer" },
+    { id: "seg-3", code: "pediatric-dentist", name: "Pediatric Dentists", audienceType: "professional" },
+  ],
+  respondents: [
+    { id: "resp-1", externalId: "R-FAM-014", segmentCode: "families", segmentName: "Families with Children", respondentType: "Consumer", consentStatus: "granted", status: "active", workflowStatus: "approved", assignedToName: "Kayla Tillmon", createdAt: "2026-08-01T13:00:00.000Z" },
+    { id: "resp-2", externalId: "R-ORTH-006", segmentCode: "orthodontic", segmentName: "Adult Orthodontic Patients", respondentType: "Consumer", consentStatus: "granted", status: "active", workflowStatus: "approved", assignedToName: "Wen Tang", createdAt: "2026-08-01T15:00:00.000Z" },
+    { id: "resp-3", externalId: "R-PED-009", segmentCode: "pediatric-dentist", segmentName: "Pediatric Dentists", respondentType: "Dental Professional", consentStatus: "pending", status: "scheduled", workflowStatus: "submitted", assignedToName: "Kayla Tillmon", createdAt: "2026-08-03T10:00:00.000Z" },
+  ],
+  sessions: [
+    { id: "session-1", respondentId: "resp-1", segmentCode: "families", pmfLayer: "H1", method: "JTBD interview", sessionDate: "2026-08-02", unmetNeed: "Know whether a visible change needs action before the next visit.", workflowStatus: "approved", assignedToName: "Kayla Tillmon", createdAt: "2026-08-02T16:00:00.000Z" },
+  ],
+  evidence: [
+    { id: "pmf-e1", respondentId: "resp-1", sessionId: "session-1", segmentCode: "families", pmfLayer: "H1", dimension: "Frequency", title: "Caregivers notice changes between visits", evidenceText: "Recent changes prompted photos and online searches.", stance: "supporting", strength: 3, limitations: "Single recruited caregiver segment.", consentStatus: "granted", workflowStatus: "approved", assignedToName: "Kayla Tillmon", createdAt: "2026-08-02T16:30:00.000Z" },
+    { id: "pmf-e2", respondentId: "resp-2", segmentCode: "orthodontic", pmfLayer: "H1", dimension: "Actionability", title: "Some changes still require a clinician", evidenceText: "The respondent could see a change but could not choose an action.", stance: "contradicting", strength: 3, limitations: "One orthodontic participant.", consentStatus: "granted", workflowStatus: "approved", assignedToName: "Wen Tang", createdAt: "2026-08-02T18:00:00.000Z" },
+  ],
+  productEvents: [],
+  valueExchange: [],
+  definitions: [
+    { id: "def-h1", code: "recent_change_rate", layer: "H1", dimension: "Frequency", label: "Experienced a target change in six months", valueType: "boolean", unit: "percent" },
+    { id: "def-h2", code: "switching_readiness", layer: "H2", dimension: "Switching Readiness", label: "Willingness to try a new solution", valueType: "numeric", unit: "score" },
+    { id: "def-h3", code: "capture_success", layer: "H3", dimension: "Capture", label: "First independent capture success", valueType: "boolean", unit: "percent" },
+    { id: "def-h4", code: "week_4_reuse", layer: "H4", dimension: "Actual Reuse", label: "Week 4 reuse", valueType: "boolean", unit: "percent" },
+    { id: "def-h5", code: "purchase_intent_259", layer: "H5", dimension: "Price Acceptance", label: "Purchase intent at $259", valueType: "numeric", unit: "score" },
+  ],
+  observations: [
+    { id: "obs-1", definitionId: "def-h1", respondentId: "resp-1", segmentCode: "families", booleanValue: true, workflowStatus: "approved", assignedToName: "Kayla Tillmon", createdAt: "2026-08-02T17:00:00.000Z" },
+    { id: "obs-2", definitionId: "def-h1", respondentId: "resp-2", segmentCode: "orthodontic", booleanValue: true, workflowStatus: "approved", assignedToName: "Wen Tang", createdAt: "2026-08-02T18:15:00.000Z" },
+    { id: "obs-3", definitionId: "def-h2", respondentId: "resp-1", segmentCode: "families", numericValue: 4, workflowStatus: "approved", assignedToName: "Kayla Tillmon", createdAt: "2026-08-02T18:30:00.000Z" },
+  ],
+  hypotheses: [],
+  reviewQueue: [
+    { id: "resp-3", recordType: "respondent", title: "R-PED-009", workflowStatus: "submitted", submittedAt: "2026-08-03T10:05:00.000Z", assignedToName: "Kayla Tillmon" },
+  ],
+  gateSnapshots: [],
   activity: [
     { id: "a1", actorName: "Ethan", actorInitials: "ET", action: "submitted", subject: "Recruitment message v3", eventType: "review", occurredAt: "2026-08-03T18:42:00.000Z" },
     { id: "a2", actorName: "Kayla Tillmon", actorInitials: "KT", action: "logged 6 evidence records", subject: "Pediatric dentist interviews", eventType: "evidence", occurredAt: "2026-08-03T18:00:00.000Z" },
@@ -109,3 +145,37 @@ export const fallbackDashboard = {
   ],
   generatedAt: "2026-08-03T19:00:00.000Z",
 };
+
+fallbackDashboard.crmContacts = fallbackDashboard.candidates.map((candidate) => ({
+  id: `crm-${candidate.id}`,
+  candidateId: candidate.id,
+  contactType: candidate.category,
+  name: candidate.name,
+  organization: "",
+  email: candidate.contactDetail || "",
+  phone: "",
+  primaryChannel: candidate.contactChannel || (candidate.platforms?.split(" /")[0] || "Email"),
+  sourceUrl: candidate.sourceUrl,
+  tags: candidate.pmfCandidate ? "PMF candidate" : "",
+  ownerName: candidate.ownerName,
+  lifecycle: ["Confirmed"].includes(candidate.outreachStatus) ? "qualified" : ["Interested", "Replied"].includes(candidate.outreachStatus) ? "engaged" : ["Sent", "Drafted"].includes(candidate.outreachStatus) ? "contacted" : ["Email ready", "Form ready", "Social DM ready"].includes(candidate.contactReadiness) ? "ready" : "researching",
+  nextAction: candidate.nextStep,
+  nextActionDue: candidate.nextStepDue,
+  priorityScore: candidate.priorityScore,
+  notes: candidate.notes,
+  outreachStatus: candidate.outreachStatus,
+  category: candidate.category,
+  pmfCandidate: candidate.pmfCandidate,
+  activityCount: fallbackDashboard.outreachEvents.filter((event) => event.candidateId === candidate.id).length,
+}));
+
+fallbackDashboard.crmActivity = fallbackDashboard.outreachEvents.map((event) => ({
+  id: `crm-activity-${event.id}`,
+  contactId: `crm-${event.candidateId}`,
+  activityType: "outreach",
+  summary: event.summary,
+  actorName: event.actorName,
+  createdAt: event.occurredAt,
+}));
+
+fallbackDashboard.crmProgress = { xp: 460, completedToday: 2, streakDays: 6 };

@@ -27,12 +27,30 @@ The workspace includes a role-aware KOL outreach command center for the August w
 - Explainable pipeline, deadline, and category recommendations
 - Outreach timeline logging for email and manual social activity
 - PMF evidence and consent ledger with supporting and contradictory findings
-- CSV, JSON, and tab-delimited import with preview and validation
+- CSV, TSV, JSON, and XLSX import with preview and validation
 - Formula-safe CSV and JSON export
 
 Apply `supabase/migrations/202608040001_outreach_operations.sql` after the existing migrations to persist candidate, outreach, evidence, import, and audit records. The browser preview is usable without Supabase; authenticated writes use organization-scoped RPCs and RLS.
 
+## PMF Workspace
+
+The PMF workspace adds guided respondent, session, evidence, product-event, value-exchange, and structured metric collection. Submitted records require administrator review before they enter the five segment-comparison matrices. Recommendations are deterministic rules based on review backlog, sample gaps, contradictory evidence, and consent restrictions. Administrators can preserve an auditable Gate snapshot with a decision and rationale.
+
+Consent documents, research sources, recordings, and oral images use four private Storage buckets. Recordings and oral images require the latest granted consent version. A later withdrawal restricts existing sensitive attachments. Retention is intentionally manual: use `retention_review_at`, legal hold, and attachment status to review, restrict, anonymize, or purge records rather than deleting them automatically.
+
 Email automation still requires selecting and configuring a provider adapter before production sending. Social platforms remain manual by design because unsupported automation and scraping create account and compliance risk.
+
+## Internal CRM
+
+The workspace includes a connected CRM layer for administrators and interns:
+
+- Today queue prioritized by due date, enrichment completeness, and contact value
+- Shared contact directory with quick create/edit forms and lifecycle state
+- CRM contacts connected to AOI KOL candidates and existing outreach activity
+- Append-only activity trail for enrichment, outreach, qualification, and follow-up
+- Personal XP, streaks, and badges without individual rankings
+
+Apply `supabase/migrations/20260804122136_crm_workspace.sql` and `supabase/migrations/20260804123948_crm_function_repairs.sql` after the existing migrations. The CRM uses organization-scoped RLS and authenticated RPCs.
 
 ## Local Setup
 
@@ -81,4 +99,4 @@ The repository must use GitHub Pages with the Actions source. The generated site
 
 ## Data Safety
 
-The browser receives only the Supabase publishable key. RLS and organization membership checks protect workspace data. Keep real respondent contacts, oral images, and production research data out of this test build until AOI retention and compliance decisions are finalized.
+The browser receives only the Supabase publishable key. Assignment-aware RLS and active organization membership checks protect workspace data. Contacts and consent stay restricted to assignees and administrators; only approved analytical records become project-visible. This is an internal research system, not a clinical record system or medical advice product.

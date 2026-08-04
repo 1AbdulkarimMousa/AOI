@@ -1,9 +1,26 @@
-import { addEvidence, createAdminTask, createAdminUser, listAdminUsers, loadDashboard, logOutreach, upsertCandidate } from "./api.js";
+import {
+  addEvidence,
+  createAdminTask,
+  createAdminUser,
+  createGateSnapshot,
+  importCandidates,
+  logCrmActivity,
+  listAdminUsers,
+  loadDashboard,
+  logOutreach,
+  reviewResearchRecord as persistResearchReview,
+  saveResearchRecord as persistResearchRecord,
+  uploadResearchAttachment,
+  upsertCandidate,
+  upsertCrmContact,
+} from "./api.js";
 import { getExistingWorkspaceAccess, signOut } from "./auth.js";
 import { clamp, csvCell, initials, pageUrl, readableError, routeForRole, scopePreviewDashboard } from "./core.js";
 import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
-import { buildCandidateExport, buildRecommendations, parseCandidateImport } from "./operations.js";
+import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
+import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
+import { buildTodayQueue, contactCompleteness, createContactDraft, rewardForAction } from "./crm.js";
 
 function defaultTask() {
   const date = new Date();
@@ -17,6 +34,49 @@ function defaultTask() {
     assignedTo: "",
     estimatedHours: 4,
     points: 100,
+  };
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function defaultResearchForms() {
+  return {
+    respondent: {
+      externalId: "", segmentCode: "families", respondentType: "Consumer", specialtyStatus: "",
+      ageChildAge: "", recruitmentSource: "", consentStatus: "pending", stage: "Concept",
+      status: "recruiting", contactName: "", email: "", phone: "", preferredChannel: "Email",
+      interviewAllowed: false, recordingAllowed: false, imagesAllowed: false,
+      quotationAllowed: false, recontactAllowed: false, notes: "", retentionReviewAt: "",
+    },
+    session: {
+      respondentId: "", pmfLayer: "H1", method: "JTBD interview", sessionDate: today(),
+      currentBehavior: "", biggestHassle: "", recentIncident: "", currentAction: "",
+      unmetNeed: "", limitations: "",
+    },
+    evidence: {
+      respondentId: "", sessionId: "", segmentCode: "families", pmfLayer: "H1",
+      dimension: "Frequency", topic: "", evidenceType: "Interview", stance: "supporting",
+      strength: 2, title: "", evidenceText: "", sourceLink: "", decisionRelevance: "",
+      consentStatus: "not_applicable", followUpNeeded: false, limitations: "", notes: "",
+    },
+    product_event: {
+      respondentId: "", eventDate: today(), studyWeek: 0, triggerType: "Natural Trigger",
+      triggerDescription: "", targetUser: "Self", sessionDurationMinutes: "",
+      captureSuccess: "", validImage: "", compareUsed: "", resultUnderstood: "",
+      valueObtained: "", actionTaken: "", sharedWithDoctor: "", mainFriction: "", notes: "",
+    },
+    value_exchange: {
+      respondentId: "", observedAt: today(), hardwarePrice: 259, reasonablePriceMin: "",
+      reasonablePriceMax: "", purchaseIntent: 3, preferredOffer: "Hardware + basic app",
+      subscriptionPlan: "None", commitmentType: "None", commitmentAmount: "",
+      mainObjection: "", postTrialPurchaseIntent: "", notes: "",
+    },
+    observation: {
+      definitionId: "", segmentCode: "families", respondentId: "", sessionId: "",
+      numericValue: "", booleanValue: "", textValue: "", sourceLink: "", notes: "",
+    },
   };
 }
 
@@ -42,7 +102,7 @@ export function registerWorkspace(Alpine) {
     loadingUsers: false,
     preview: false,
     error: "",
-    view: document.body.dataset.expectedRole === "intern" ? "work" : "overview",
+    view: document.body.dataset.expectedRole === "intern" ? "today" : "overview",
     locale: localStorage.getItem("aoi-locale") === "zh-CN" ? "zh-CN" : "en",
     dark: localStorage.getItem("aoi-theme") === "dark",
     mobileNav: false,
@@ -54,13 +114,37 @@ export function registerWorkspace(Alpine) {
     taskFilter: "all",
     selectedTask: null,
      selectedLayer: null,
-     selectedCandidate: null,
-     candidateEditorOpen: false,
+      selectedCandidate: null,
+      candidateEditorOpen: false,
      candidateFilter: "all",
      candidateQuery: "",
-     candidateNotice: null,
+      candidateNotice: null,
+      selectedCrmContact: null,
+      crmEditorOpen: false,
+      crmQuery: "",
+      crmFilter: "all",
+      crmNotice: null,
+      crmActionNotice: null,
+      crmActionSaving: false,
+      crmSaving: false,
+      crmForm: createContactDraft(),
+      crmActionForm: { activityType: "follow_up", summary: "", nextAction: "", nextActionDue: "", lifecycle: "" },
      importPreview: null,
      importErrors: [],
+      importFileName: "",
+      importFileFormat: "csv",
+      importing: false,
+      collectionType: "respondent",
+      researchForms: defaultResearchForms(),
+      researchNotice: null,
+      savingResearch: false,
+      reviewNotes: {},
+      reviewingRecord: null,
+      matrixLayer: "H1",
+      gateForm: { pmfLayer: "H1", decision: "insufficient", rationale: "" },
+      gateNotice: null,
+      attachmentForm: { respondentId: "", sessionId: "", bucketId: "aoi-sources" },
+      uploadingAttachment: false,
      candidateForm: { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" },
      outreachForm: { channel: "Email", kind: "Initial", status: "Drafted", summary: "" },
      evidenceForm: { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" },
@@ -72,17 +156,19 @@ export function registerWorkspace(Alpine) {
     taskNotice: null,
     userForm: { displayName: "", email: "", password: "", role: "intern" },
     taskForm: defaultTask(),
-    navigation: [
-      { id: "overview", label: "Overview" },
-      { id: "work", label: "My work" },
-      { id: "research", label: "Research ops" },
-      { id: "pmf", label: "PMF validation" },
-      { id: "reports", label: "Reports" },
-      { id: "team", label: "Team momentum" },
-      { id: "outreach", label: "KOL outreach" },
-      { id: "evidence", label: "Evidence & consent" },
-      { id: "imports", label: "Import / export" },
-    ],
+      navigation: [
+        { id: "overview", label: "Overview" },
+        { id: "today", label: "Today" },
+        { id: "crm", label: "CRM" },
+        { id: "work", label: "My work" },
+       { id: "collect", label: "Collect" },
+       { id: "outreach", label: "Outreach" },
+       { id: "evidence", label: "Evidence" },
+       { id: "analyze", label: "Analyze" },
+       { id: "imports", label: "Imports" },
+       { id: "reports", label: "Reports" },
+       { id: "team", label: "Team momentum" },
+     ],
 
     async init() {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
@@ -168,6 +254,26 @@ export function registerWorkspace(Alpine) {
       return this.data.tasks.filter((task) => !value || task.title.toLowerCase().includes(value)).slice(0, 5);
     },
     get candidates() { return this.data.candidates || []; },
+    get crmContacts() { return this.data.crmContacts || []; },
+    get crmQueue() { return buildTodayQueue(this.crmContacts, today()); },
+    get filteredCrmContacts() {
+      const query = this.crmQuery.trim().toLowerCase();
+      return this.crmContacts.filter((contact) => {
+        const matchesQuery = !query || [contact.name, contact.organization, contact.contactType, contact.ownerName, contact.lifecycle, contact.outreachStatus].some((value) => String(value || "").toLowerCase().includes(query));
+        const matchesFilter = this.crmFilter === "all" || (this.crmFilter === "mine" && contact.ownerName === this.access?.displayName) || (this.crmFilter === "attention" && (contact.queueReason === "Overdue" || (contact.completeness || contactCompleteness(contact)) < 100)) || (this.crmFilter === "qualified" && contact.lifecycle === "qualified");
+        return matchesQuery && matchesFilter;
+      });
+    },
+    get crmStats() {
+      const queue = this.crmQueue;
+      return {
+        total: this.crmContacts.length,
+        due: queue.filter((contact) => ["Overdue", "Due today"].includes(contact.queueReason)).length,
+        needsEnrichment: this.crmContacts.filter((contact) => (contact.completeness || contactCompleteness(contact)) < 100).length,
+        xp: this.data.crmProgress?.xp || 0,
+      };
+    },
+    contactCompleteness,
     get filteredCandidates() {
       const query = this.candidateQuery.trim().toLowerCase();
       return this.candidates.filter((candidate) => {
@@ -185,8 +291,38 @@ export function registerWorkspace(Alpine) {
         followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= new Date().toISOString().slice(0, 10)).length,
       };
     },
+    get researchRespondents() { return this.data.respondents || []; },
+    get reviewQueue() { return this.data.reviewQueue || []; },
+    get pmfMatrices() {
+      return buildLayerMatrices({
+        segments: this.data.segments || [],
+        definitions: this.data.definitions || [],
+        observations: this.data.observations || [],
+      });
+    },
+    get activeMatrixRows() { return this.pmfMatrices[this.matrixLayer] || []; },
+    get pmfRecommendations() {
+      return buildPmfRecommendations({
+        reviewQueue: this.reviewQueue,
+        samplePlan: this.data.samplePlan || [],
+        evidence: this.data.evidence || [],
+        respondents: this.researchRespondents,
+      });
+    },
+    get researchStats() {
+      return {
+        respondents: this.researchRespondents.length,
+        sessions: (this.data.sessions || []).length,
+        approvedEvidence: (this.data.evidence || []).filter((item) => item.workflowStatus === "approved").length,
+        pendingReview: this.reviewQueue.length,
+      };
+    },
+    get selectedMetricDefinition() {
+      return (this.data.definitions || []).find((item) => item.id === this.researchForms.observation.definitionId) || null;
+    },
 
     setView(view) {
+      view = { research: "collect", pmf: "analyze" }[view] || view;
       if (view === "admin" && this.access?.role !== "admin") return;
       this.view = view;
       this.mobileNav = false;
@@ -218,15 +354,84 @@ export function registerWorkspace(Alpine) {
       this.candidateEditorOpen = false;
       this.candidateNotice = null;
     },
+    selectCrmContact(contact) {
+      this.selectedCrmContact = { ...contact };
+      this.crmForm = { ...createContactDraft(this.access?.displayName || ""), ...contact };
+      this.crmActionForm = { activityType: "follow_up", summary: "", nextAction: contact.nextAction || "", nextActionDue: contact.nextActionDue || "", lifecycle: contact.lifecycle || "" };
+      this.crmNotice = null;
+      this.crmActionNotice = null;
+      this.crmEditorOpen = true;
+    },
+    startNewCrmContact() {
+      this.selectedCrmContact = null;
+      this.crmForm = createContactDraft(this.access?.displayName || "");
+      this.crmActionForm = { activityType: "follow_up", summary: "", nextAction: "", nextActionDue: "", lifecycle: "" };
+      this.crmNotice = null;
+      this.crmActionNotice = null;
+      this.crmEditorOpen = true;
+      this.view = "crm";
+    },
+    closeCrmContact() {
+      this.selectedCrmContact = null;
+      this.crmEditorOpen = false;
+      this.crmNotice = null;
+      this.crmActionNotice = null;
+    },
+    async saveCrmContact() {
+      const completeness = contactCompleteness(this.crmForm);
+      if (!this.crmForm.name.trim()) {
+        this.crmNotice = { tone: "error", text: "Add a person or organization name before saving." };
+        return;
+      }
+      const reward = rewardForAction("enrich", completeness);
+      let saved = { ...this.crmForm, id: this.selectedCrmContact?.id || `crm-local-${Date.now()}`, candidateId: this.selectedCrmContact?.candidateId || null, completeness, priorityScore: this.selectedCrmContact?.priorityScore || 50, lastUpdated: today() };
+      this.crmSaving = true;
+      try {
+        if (!this.preview) saved = { ...saved, ...(await upsertCrmContact({ ...saved, createOutreach: true, rewardPoints: reward })) };
+        this.data.crmContacts = this.selectedCrmContact ? this.crmContacts.map((contact) => contact.id === saved.id ? { ...contact, ...saved, completeness } : contact) : [{ ...saved, completeness }, ...this.crmContacts];
+        this.data.crmProgress = { ...(this.data.crmProgress || {}), xp: (this.data.crmProgress?.xp || 0) + reward, completedToday: (this.data.crmProgress?.completedToday || 0) + 1 };
+        this.selectedCrmContact = { ...saved, completeness };
+        this.crmForm = { ...this.crmForm, ...saved };
+        this.crmNotice = { tone: "success", text: `Saved. +${reward} XP for verified enrichment.` };
+      } catch (reason) {
+        this.crmNotice = { tone: "error", text: readableError(reason, "Unable to save the CRM contact.") };
+      } finally {
+        this.crmSaving = false;
+      }
+    },
+    async logCrmAction() {
+      if (!this.selectedCrmContact || !this.crmActionForm.summary.trim()) {
+        this.crmActionNotice = { tone: "error", text: "Add a short outcome before logging the action." };
+        return;
+      }
+      this.crmActionSaving = true;
+      const reward = rewardForAction(this.crmActionForm.activityType, contactCompleteness(this.crmForm));
+      try {
+        if (!this.preview) await logCrmActivity(this.selectedCrmContact.id, { ...this.crmActionForm, rewardPoints: reward });
+        const updated = { ...this.selectedCrmContact, nextAction: this.crmActionForm.nextAction || this.selectedCrmContact.nextAction, nextActionDue: this.crmActionForm.nextActionDue || this.selectedCrmContact.nextActionDue, lifecycle: this.crmActionForm.lifecycle || this.selectedCrmContact.lifecycle };
+        this.data.crmContacts = this.crmContacts.map((contact) => contact.id === updated.id ? updated : contact);
+        this.data.crmActivity = [{ id: `crm-activity-local-${Date.now()}`, contactId: updated.id, activityType: this.crmActionForm.activityType, summary: this.crmActionForm.summary, actorName: this.access?.displayName || "AOI", createdAt: new Date().toISOString() }, ...(this.data.crmActivity || [])];
+        this.data.crmProgress = { ...(this.data.crmProgress || {}), xp: (this.data.crmProgress?.xp || 0) + reward, completedToday: (this.data.crmProgress?.completedToday || 0) + 1 };
+        this.selectedCrmContact = updated;
+        this.crmForm = { ...this.crmForm, ...updated };
+        this.crmActionForm = { ...this.crmActionForm, summary: "" };
+        this.crmActionNotice = { tone: "success", text: `Action logged. +${reward} XP.` };
+      } catch (reason) {
+        this.crmActionNotice = { tone: "error", text: readableError(reason, "Unable to log the CRM action.") };
+      } finally {
+        this.crmActionSaving = false;
+      }
+    },
     async saveCandidate() {
-      const candidate = { ...this.candidateForm, id: this.selectedCandidate?.id || `local-${Date.now()}`, externalId: this.selectedCandidate?.externalId || `local-${this.candidates.length + 1}`, priorityScore: this.selectedCandidate?.priorityScore || 50, priorityBand: this.selectedCandidate?.priorityBand || "Medium", interestLevel: this.selectedCandidate?.interestLevel || "Unknown", lastUpdated: new Date().toISOString().slice(0, 10) };
+      let candidate = { ...this.candidateForm, id: this.selectedCandidate?.id || null, externalId: this.selectedCandidate?.externalId || "", priorityScore: this.selectedCandidate?.priorityScore || 50, priorityBand: this.selectedCandidate?.priorityBand || "Medium", interestLevel: this.selectedCandidate?.interestLevel || "Unknown", lastUpdated: new Date().toISOString().slice(0, 10) };
       if (!candidate.name.trim()) {
         this.candidateNotice = { tone: "error", text: "Add a creator or organization name before saving." };
         return;
       }
       if (!this.preview) {
         try {
-          await upsertCandidate(candidate);
+          const saved = await upsertCandidate(candidate);
+          candidate = { ...candidate, ...saved };
         } catch (reason) {
           this.candidateNotice = { tone: "error", text: readableError(reason, "Unable to save the candidate.") };
           return;
@@ -244,26 +449,40 @@ export function registerWorkspace(Alpine) {
       this.candidateNotice = null;
       this.view = "outreach";
     },
-    importFile(event) {
+    async importFile(event) {
       const file = event.target.files?.[0];
       if (!file) return;
-      const reader = new globalThis.FileReader();
-      reader.onload = () => {
-        const result = parseCandidateImport(reader.result);
+      this.importFileName = file.name;
+      try {
+        const result = await parseCandidateFile(file);
         this.importPreview = result.rows;
         this.importErrors = result.errors;
+        this.importFileFormat = result.fileFormat;
         this.candidateNotice = result.errors.length ? { tone: "error", text: `${result.errors.length} row(s) need attention before import.` } : { tone: "success", text: `${result.rows.length} candidate row(s) ready to import.` };
-      };
-      reader.readAsText(file);
+      } catch (reason) {
+        this.importPreview = null;
+        this.importErrors = [readableError(reason, "The workbook could not be read.")];
+      }
     },
-    commitImport() {
-      if (!this.importPreview?.length) return;
-      const imported = this.importPreview.map((row, index) => ({ ...row, id: `import-${Date.now()}-${index}`, priorityScore: 50, priorityBand: "Medium", interestLevel: "Unknown", lastUpdated: new Date().toISOString().slice(0, 10) }));
-      this.data.candidates = [...imported, ...this.candidates];
-      this.data.outreachSummary = { ...this.data.outreachSummary, totalCandidates: this.candidates.length };
-      this.importPreview = null;
-      this.importErrors = [];
-      this.candidateNotice = { tone: "success", text: `${imported.length} candidates imported into the pipeline.` };
+    async commitImport() {
+      if (!this.importPreview?.length || this.importErrors.length) return;
+      if (this.access?.role !== "admin") {
+        this.candidateNotice = { tone: "error", text: "Submit this preview to an administrator for atomic import." };
+        return;
+      }
+      this.importing = true;
+      try {
+        if (this.preview) throw new Error("Imports are disabled in preview mode.");
+        const result = await importCandidates(this.importPreview, this.importFileName, this.importFileFormat);
+        this.importPreview = null;
+        this.importErrors = [];
+        this.candidateNotice = { tone: "success", text: `${result.imported} candidates imported and persisted.` };
+        await this.refreshDashboard();
+      } catch (reason) {
+        this.candidateNotice = { tone: "error", text: readableError(reason, "The import was rolled back.") };
+      } finally {
+        this.importing = false;
+      }
     },
     exportCandidates(format) {
       const exported = buildCandidateExport(this.candidates);
@@ -306,6 +525,94 @@ export function registerWorkspace(Alpine) {
       this.evidenceForm = { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" };
       this.candidateNotice = { tone: "success", text: "Evidence record added. Keep consent and limitations explicit." };
     },
+    respondentSegmentCode(respondentId) {
+      return this.researchRespondents.find((item) => item.id === respondentId)?.segmentCode || "families";
+    },
+    async saveResearchRecord(recordType, workflowStatus) {
+      const form = this.researchForms[recordType];
+      const payload = { ...form, workflowStatus };
+      if (["session", "product_event", "value_exchange"].includes(recordType)) {
+        payload.segmentCode = this.respondentSegmentCode(form.respondentId);
+      }
+      const errors = validateResearchRecord(recordType, payload, workflowStatus);
+      if (errors.length) {
+        this.researchNotice = { tone: "error", text: errors.join(" ") };
+        return;
+      }
+      this.savingResearch = true;
+      this.researchNotice = null;
+      try {
+        if (this.preview) {
+          this.researchNotice = { tone: "success", text: `Preview ${recordType.replaceAll("_", " ")} validated. Live mode will persist it as ${workflowStatus}.` };
+          return;
+        }
+        await persistResearchRecord(recordType, payload);
+        this.researchForms = defaultResearchForms();
+        this.researchNotice = { tone: "success", text: `${recordType.replaceAll("_", " ")} ${workflowStatus === "submitted" ? "submitted for review" : "saved as a draft"}.` };
+        await this.refreshDashboard();
+      } catch (reason) {
+        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to save the research record.") };
+      } finally {
+        this.savingResearch = false;
+      }
+    },
+    async reviewResearchRecord(record, action) {
+      if (this.access?.role !== "admin") return;
+      this.reviewingRecord = record.id;
+      this.researchNotice = null;
+      try {
+        if (this.preview) throw new Error("Review actions are disabled in preview mode.");
+        await persistResearchReview(record.recordType, record.id, action, this.reviewNotes[record.id] || "");
+        this.researchNotice = { tone: "success", text: action === "approve" ? "Record approved and included in analysis." : "Revision requested from the record owner." };
+        await this.refreshDashboard();
+      } catch (reason) {
+        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to review the record.") };
+      } finally {
+        this.reviewingRecord = null;
+      }
+    },
+    async prepareGateSnapshot() {
+      if (this.access?.role !== "admin") return;
+      if (this.gateForm.rationale.trim().length < 10) {
+        this.gateNotice = { tone: "error", text: "Add a decision rationale with at least ten characters." };
+        return;
+      }
+      try {
+        if (this.preview) throw new Error("Gate snapshots are disabled in preview mode.");
+        await createGateSnapshot(this.gateForm.pmfLayer, this.gateForm.decision, this.gateForm.rationale);
+        this.gateNotice = { tone: "success", text: `${this.gateForm.pmfLayer} Gate snapshot created.` };
+        this.gateForm.rationale = "";
+        await this.refreshDashboard();
+      } catch (reason) {
+        this.gateNotice = { tone: "error", text: readableError(reason, "Unable to create the Gate snapshot.") };
+      }
+    },
+    async uploadAttachment(event) {
+      const file = event.target.files?.[0];
+      const respondentId = this.attachmentForm.respondentId;
+      if (!file || !respondentId) {
+        this.researchNotice = { tone: "error", text: "Choose a respondent and a file before uploading." };
+        return;
+      }
+      this.uploadingAttachment = true;
+      try {
+        if (this.preview) throw new Error("File uploads are disabled in preview mode.");
+        await uploadResearchAttachment({
+          bucketId: this.attachmentForm.bucketId,
+          file,
+          projectId: this.access.projectId,
+          organizationId: this.access.organizationId,
+          respondentId,
+          sessionId: this.attachmentForm.sessionId || null,
+        });
+        this.researchNotice = { tone: "success", text: `${file.name} uploaded to private research storage.` };
+        event.target.value = "";
+      } catch (reason) {
+        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to upload the research file.") };
+      } finally {
+        this.uploadingAttachment = false;
+      }
+    },
     recommendations() {
       return this.data.recommendations?.length ? this.data.recommendations : buildRecommendations({ ...this.data.outreachSummary, ...this.data.campaign, categories: this.data.categories || [] });
     },
@@ -330,9 +637,23 @@ export function registerWorkspace(Alpine) {
            categories: liveData.categories || [],
            candidates: liveData.candidates || [],
            outreachEvents: liveData.outreachEvents || [],
-           evidenceRecords: liveData.evidenceRecords || [],
+            evidenceRecords: liveData.evidenceRecords || [],
+            crmContacts: liveData.crmContacts || [],
+            crmActivity: liveData.crmActivity || [],
+            crmProgress: liveData.crmProgress || { xp: 0, completedToday: 0, streakDays: 0 },
            recommendations: liveData.recommendations || [],
-         };
+           segments: liveData.segments || [],
+           respondents: liveData.respondents || [],
+           sessions: liveData.sessions || [],
+           evidence: liveData.evidence || [],
+           productEvents: liveData.productEvents || [],
+           valueExchange: liveData.valueExchange || [],
+           definitions: liveData.definitions || [],
+           observations: liveData.observations || [],
+           hypotheses: liveData.hypotheses || [],
+           reviewQueue: liveData.reviewQueue || [],
+           gateSnapshots: liveData.gateSnapshots || [],
+          };
         this.preview = false;
       } catch (reason) {
         this.error = readableError(reason, "Live workspace data is unavailable.");

@@ -45,9 +45,21 @@ export function scopePreviewDashboard(dashboard, role, displayName) {
   if (role === "intern") {
     copy.tasks = copy.tasks.filter((task) => task.ownerName === displayName);
     copy.candidates = (copy.candidates || []).filter((candidate) => candidate.ownerName === displayName);
+    copy.crmContacts = (copy.crmContacts || []).filter((contact) => contact.ownerName === displayName);
     const candidateIds = new Set((copy.candidates || []).map((candidate) => candidate.id));
     copy.evidenceRecords = (copy.evidenceRecords || []).filter((record) => candidateIds.has(record.candidateId));
     copy.outreachEvents = (copy.outreachEvents || []).filter((event) => candidateIds.has(event.candidateId));
+    const contactIds = new Set((copy.crmContacts || []).map((contact) => contact.id));
+    copy.crmActivity = (copy.crmActivity || []).filter((activity) => contactIds.has(activity.contactId));
+    const visibleResearch = (record) => record.workflowStatus === "approved" || record.assignedToName === displayName;
+    copy.respondents = (copy.respondents || []).filter(visibleResearch);
+    const respondentIds = new Set(copy.respondents.map((record) => record.id));
+    copy.sessions = (copy.sessions || []).filter((record) => visibleResearch(record) && respondentIds.has(record.respondentId));
+    copy.evidence = (copy.evidence || []).filter((record) => visibleResearch(record) && (!record.respondentId || respondentIds.has(record.respondentId)));
+    copy.productEvents = (copy.productEvents || []).filter((record) => visibleResearch(record) && respondentIds.has(record.respondentId));
+    copy.valueExchange = (copy.valueExchange || []).filter((record) => visibleResearch(record) && respondentIds.has(record.respondentId));
+    copy.observations = (copy.observations || []).filter((record) => visibleResearch(record) && (!record.respondentId || respondentIds.has(record.respondentId)));
+    copy.reviewQueue = (copy.reviewQueue || []).filter((record) => record.assignedToName === displayName);
   }
   return copy;
 }

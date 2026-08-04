@@ -133,18 +133,22 @@ test("keeps Supabase access behind authenticated RPCs and an Edge Function", asy
 });
 
 test("ships role-aware workspace, localization, theme, and CSV behavior", async () => {
-  const [controller, template, styles] = await Promise.all([
+  const [controller, template, crmTemplate, styles] = await Promise.all([
     readFile(new URL("src/js/workspace.js", root), "utf8"),
     readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+    readFile(new URL("src/js/crm-template.js", root), "utf8"),
     readFile(new URL("src/css/aoi.css", root), "utf8"),
   ]);
+  const workspaceMarkup = template + crmTemplate;
 
   assert.match(controller, /expectedRole/);
   assert.match(controller, /routeForRole/);
   assert.match(controller, /localStorage\.setItem\("aoi-locale"/);
   assert.match(controller, /localStorage\.setItem\("aoi-theme"/);
   assert.match(controller, /downloadCsv/);
-  assert.match(template, /Overview/);
+   assert.match(template, /Overview/);
+   assert.match(workspaceMarkup, /Today/);
+   assert.match(workspaceMarkup, /CRM/);
   assert.match(template, /My work/);
   assert.match(template, /Research ops/);
   assert.match(template, /PMF validation/);
@@ -194,6 +198,31 @@ test("includes the persisted outreach, evidence, and email operation contracts",
   assert.match(migration, /audit_events/);
   assert.match(emailMigration, /email_deliveries/);
   assert.match(emailMigration, /ADMIN_APPROVAL_REQUIRED/);
+});
+
+test("ships persisted PMF collection, review, matrix, Gate, and private media workflows", async () => {
+  const [api, controller, workspaceTemplate, pmfTemplate] = await Promise.all([
+    readFile(new URL("src/js/api.js", root), "utf8"),
+    readFile(new URL("src/js/workspace.js", root), "utf8"),
+    readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+    readFile(new URL("src/js/pmf-template.js", root), "utf8"),
+  ]);
+  const template = workspaceTemplate + pmfTemplate;
+
+  assert.match(api, /rpc\("rpc_aoi_pmf_snapshot"\)/);
+  assert.match(api, /rpc\("rpc_aoi_save_research_record"/);
+  assert.match(api, /rpc\("rpc_aoi_review_research_record"/);
+  assert.match(api, /rpc\("rpc_aoi_import_candidates"/);
+  assert.match(api, /rpc\("rpc_aoi_create_gate_snapshot"/);
+  assert.match(api, /\.storage\.from\(bucketId\)\.upload/);
+  assert.match(controller, /validateResearchRecord/);
+  assert.match(controller, /buildLayerMatrices/);
+  assert.match(controller, /saveResearchRecord/);
+  assert.match(controller, /reviewResearchRecord/);
+  assert.match(template, /Guided collection/);
+  assert.match(template, /Review queue/);
+  assert.match(template, /Segment comparison matrix/);
+  assert.match(template, /Prepare Gate snapshot/);
 });
 
 test("deploys only the static dist directory to GitHub Pages", async () => {
