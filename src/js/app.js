@@ -25,5 +25,14 @@ if (page === "workspace") {
   registerWorkspace(Alpine);
 }
 
+if (page === "administration") {
+  const [{ registerAdministration }, { administrationTemplate }] = await Promise.all([
+    import("./administration.js"),
+    import("./administration-template.js"),
+  ]);
+  document.querySelector("#administration-app").innerHTML = administrationTemplate;
+  registerAdministration(Alpine);
+}
+
 Alpine.start();
 createIcons({ icons: { Sparkles } });

@@ -16,8 +16,9 @@ Static bilingual research-operations workspace for accountable work, traceable e
 - `login.html`: Supabase Auth sign-in
 - `workspace.html`: administrator workspace
 - `interns.html`: role-specific intern workspace
+- `administration.html`: owner/admin people, access, CRM handoff, archive, and data-transfer workspace
 
-Protected pages require an active AOI membership. For local UI review only, append `?preview=1` to `workspace.html` or `interns.html`; preview data is synthetic and explicitly labeled.
+Protected pages require an active AOI membership. For local UI review only, append `?preview=1` to `workspace.html`, `interns.html`, or `administration.html`; preview data is synthetic and explicitly labeled.
 
 ## Outreach Operations
 
@@ -62,6 +63,12 @@ Authors can save drafts and submit late when necessary. All administrators can r
 
 The persistence contract is in `supabase/migrations/20260804164524_daily_eod_briefs.sql`. Apply all migrations in order before deploying the static client.
 
+## Administration
+
+Administration is a dedicated owner/admin workspace rather than an embedded dashboard view. It provides invitation and temporary-password onboarding, operational staff profiles, task and CRM ownership, archived-user handoff, append-only audit history, and preview-first CSV, JSON, and structured Markdown portability. An archived person loses access while completed work, evidence, EOD briefs, CRM activity, and authorship remain intact.
+
+The organization owner manages administrator-role changes and full restores. Administrators manage intern onboarding and offboarding. The migration `supabase/migrations/20260804190000_administration_foundation.sql` adds the lifecycle, ownership, profile, onboarding, transfer, CRM synchronization, and permission contracts.
+
 ## Local Setup
 
 ```bash
@@ -96,7 +103,7 @@ supabase functions deploy admin-create-user --no-verify-jwt
 supabase secrets set ALLOWED_ORIGINS=https://1abdulkarimmousa.github.io
 ```
 
-The Edge Function validates the caller JWT, requires active administrator membership, creates the Auth user and AOI membership with the service-role client, and rolls back Auth creation if application records fail. The service-role key remains a Supabase secret.
+The Edge Function validates the caller JWT and active administrator membership. It creates invitation or temporary-password accounts, enforces owner-only administrator creation, suspends Auth access during archival, restores approved accounts, and rolls back Auth creation if application records fail. The service-role key remains a Supabase secret.
 
 ## GitHub Pages
 
