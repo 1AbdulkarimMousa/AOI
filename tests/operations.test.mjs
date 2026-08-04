@@ -5,6 +5,7 @@ import {
   buildCandidateExport,
   buildRecommendations,
   parseCandidateImport,
+  parseCandidateFile,
 } from "../src/js/operations.js";
 
 test("parses workbook-shaped tabular data into candidate records", () => {
@@ -44,11 +45,34 @@ test("parses exported candidate JSON back into import rows", () => {
   assert.equal(result.rows[0].pmfCandidate, true);
 });
 
+test("maps XLSX workbook rows through the same validated import contract", async () => {
+  const file = { name: "candidates.xlsx" };
+  const result = await parseCandidateFile(file, {
+    readXlsx: async () => [
+      ["ID", "Category", "Handle / Name", "PMF Candidate"],
+      ["12", "Dental Professional", "Dr. Sample", "Yes"],
+    ],
+  });
+
+  assert.equal(result.fileFormat, "xlsx");
+  assert.equal(result.rows[0].name, "Dr. Sample");
+  assert.equal(result.rows[0].pmfCandidate, true);
+});
+
 test("rejects imports without a candidate name and reports the row", () => {
   const result = parseCandidateImport("ID\tCategory\tHandle / Name\n2\tMom & Family\t");
 
   assert.equal(result.rows.length, 0);
   assert.deepEqual(result.errors, ["Row 2: Handle / Name is required."]);
+});
+
+test("preserves newlines inside quoted CSV fields", () => {
+  const input = 'Handle / Name,Category,Notes\r\n"Dr. Ada","Dental Professional","Line one\nLine two"';
+  const result = parseCandidateImport(input);
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].name, "Dr. Ada");
 });
 
 test("exports candidates as formula-safe CSV and JSON", () => {

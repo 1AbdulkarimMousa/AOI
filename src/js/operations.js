@@ -1,4 +1,5 @@
 import { csvCell } from "./core.js";
+import readXlsxFile from "read-excel-file";
 
 const fields = [
   ["externalId", ["id", "external id"]],
@@ -22,35 +23,41 @@ function normalizeHeader(value) {
   return String(value || "").trim().replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replaceAll("_", " ");
 }
 
-function splitDelimitedLine(line, delimiter) {
-  const cells = [];
+function parseDelimited(text) {
+  const source = String(text || "").replace(/^\uFEFF/, "");
+  if (!source.trim()) return [];
+  const firstLineEnd = source.search(/\r?\n/);
+  const firstLine = firstLineEnd === -1 ? source : source.slice(0, firstLineEnd);
+  const delimiter = firstLine.includes("\t") ? "\t" : ",";
+  const rows = [];
+  let row = [];
   let cell = "";
   let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
     if (character === '"') {
-      if (quoted && line[index + 1] === '"') {
+      if (quoted && source[index + 1] === '"') {
         cell += '"';
         index += 1;
       } else {
         quoted = !quoted;
       }
     } else if (character === delimiter && !quoted) {
-      cells.push(cell.trim());
+      row.push(cell.trim());
+      cell = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && source[index + 1] === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some((value) => value !== "")) rows.push(row);
+      row = [];
       cell = "";
     } else {
       cell += character;
     }
   }
-  cells.push(cell.trim());
-  return cells;
-}
-
-function parseDelimited(text) {
-  const lines = String(text || "").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
-  if (!lines.length) return [];
-  const delimiter = lines[0].includes("\t") ? "\t" : ",";
-  return lines.map((line) => splitDelimitedLine(line, delimiter));
+  row.push(cell.trim());
+  if (row.some((value) => value !== "")) rows.push(row);
+  return rows;
 }
 
 function valueFor(row, headerIndex, aliases) {
@@ -62,21 +69,7 @@ function booleanValue(value) {
   return ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
 }
 
-export function parseCandidateImport(text) {
-  const cleanText = String(text || "").replace(/^\uFEFF/, "").trim();
-  if (cleanText.startsWith("[") || cleanText.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(cleanText);
-      const records = Array.isArray(parsed) ? parsed : parsed.candidates;
-      if (!Array.isArray(records)) return { rows: [], errors: ["JSON must contain an array of candidate records."] };
-      const matrix = [fields.map(([key]) => key), ...records.map((record) => fields.map(([key]) => record[key] ?? ""))];
-      const normalized = parseCandidateImport(matrix.map((row) => row.join("\t")).join("\n"));
-      return normalized;
-    } catch {
-      return { rows: [], errors: ["The JSON file could not be parsed."] };
-    }
-  }
-  const matrix = parseDelimited(cleanText);
+function parseCandidateMatrix(matrix) {
   if (!matrix.length) return { rows: [], errors: ["The import file is empty."] };
   const headerIndex = Object.fromEntries(matrix[0].map((value, index) => [index, normalizeHeader(value)]));
   const rows = [];
@@ -109,6 +102,36 @@ export function parseCandidateImport(text) {
   });
 
   return { rows, errors };
+}
+
+export function parseCandidateImport(text) {
+  const cleanText = String(text || "").replace(/^\uFEFF/, "").trim();
+  if (cleanText.startsWith("[") || cleanText.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(cleanText);
+      const records = Array.isArray(parsed) ? parsed : parsed.candidates;
+      if (!Array.isArray(records)) return { rows: [], errors: ["JSON must contain an array of candidate records."] };
+      return parseCandidateMatrix([
+        fields.map(([key]) => key),
+        ...records.map((record) => fields.map(([key]) => record[key] ?? "")),
+      ]);
+    } catch {
+      return { rows: [], errors: ["The JSON file could not be parsed."] };
+    }
+  }
+  return parseCandidateMatrix(parseDelimited(cleanText));
+}
+
+export async function parseCandidateFile(file, { readXlsx = readXlsxFile } = {}) {
+  const extension = String(file?.name || "").split(".").pop().toLowerCase();
+  if (extension === "xlsx") {
+    const result = parseCandidateMatrix(await readXlsx(file));
+    return { ...result, fileFormat: "xlsx" };
+  }
+  const text = await file.text();
+  const result = parseCandidateImport(text);
+  const fileFormat = extension === "json" ? "json" : text.includes("\t") ? "tsv" : "csv";
+  return { ...result, fileFormat };
 }
 
 export function buildCandidateExport(candidates) {
