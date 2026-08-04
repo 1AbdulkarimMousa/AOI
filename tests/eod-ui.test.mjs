@@ -27,6 +27,15 @@ test("ships the complete shared EOD form and administrator oversight", async () 
   assert.match(controller, /adminCompleteDailyEod/);
   assert.match(controller, /searchDailyEodReports/);
   assert.match(controller, /formatDailyEodTimestamp\(value, this\.locale, this\.dailyEod\.timezone/);
+  assert.match(controller, /scheduleDailyEodRefresh/);
+  assert.match(controller, /visibilitychange/);
+  assert.match(controller, /reloadDailyEodConflict/);
+  assert.match(controller, /restoreDailyEodConflictDraft/);
+  assert.match(controller, /dailyEodDraftScope/);
+  assert.match(controller, /dailyEodRefreshSequence/);
+  assert.match(controller, /scopeDate: this\.dailyEod\.serverDate/);
+  assert.match(controller, /sequence !== this\.dailyEodRefreshSequence/);
+  assert.match(controller, /if \(!this\.selectedDailyEod\) this\.dailyEodReturnFocus = document\.activeElement/);
   assert.match(controller, /aria-labelledby/);
   assert.match(controller, /eod-linked-evidence/);
   assert.match(template, /What Moved\?/);
@@ -37,6 +46,10 @@ test("ships the complete shared EOD form and administrator oversight", async () 
   assert.match(template, /Participant Tracker/);
   assert.match(template, /Missing today/);
   assert.match(template, /EOD report archive/);
+  assert.match(template, /record\.projectCode/);
+  assert.match(template, /Reload latest/);
+  assert.match(template, /Restore my draft/);
+  assert.match(template, /dailyEodLocked \|\| savingDailyEod/);
   assert.match(template, /Audit history/);
   assert.match(template, /access\.role==='admin'/);
 });

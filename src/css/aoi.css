@@ -3739,6 +3739,7 @@ footer {
 .eod-form-actions { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 25px; border-top: 1px solid var(--line); background: var(--surface-muted); }
 .eod-form-actions > span { color: var(--ink-faint); font-size: 8px; }
 .eod-form-actions > div { display: flex; gap: 8px; }
+.eod-conflict-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 25px 16px; background: var(--surface-muted); }
 .eod-status-rail { position: sticky; top: calc(var(--topbar-height) + 18px); display: grid; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-sm); }
 .eod-status-rail section { display: grid; gap: 5px; padding: 17px; border-top: 1px solid var(--line); }
 .eod-status-rail section:first-child { border-top: 0; }

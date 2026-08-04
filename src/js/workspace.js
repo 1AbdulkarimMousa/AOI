@@ -173,6 +173,14 @@ export function registerWorkspace(Alpine) {
       dailyEodAdminReason: "",
       dailyEodAdminNotice: null,
       dailyEodReturnFocus: null,
+      dailyEodRefreshTimer: null,
+      dailyEodVisibilityHandler: null,
+      dailyEodFocusHandler: null,
+      dailyEodConflictDraft: null,
+      dailyEodConflictLoaded: false,
+      dailyEodDirty: false,
+      dailyEodDraftScope: "",
+      dailyEodRefreshSequence: 0,
       savingDailyEodAdmin: false,
       dailyEodReportFilters: { search: "", fromDate: "", toDate: "", authorRole: "", projectStatus: "", workflowStatus: "" },
       dailyEodReports: { items: [], total: 0, page: 1, pageSize: 25 },
@@ -233,12 +241,19 @@ export function registerWorkspace(Alpine) {
          await this.refreshDashboard();
          await this.refreshDailyEod();
         if (access.role === "admin") await this.refreshUsers();
+        this.setupDailyEodRefresh();
       } catch (reason) {
         this.error = readableError(reason, "Unable to open the AOI workspace.");
         this.ready = true;
       } finally {
         this.loading = false;
       }
+    },
+
+    destroy() {
+      window.clearTimeout(this.dailyEodRefreshTimer);
+      if (this.dailyEodVisibilityHandler) document.removeEventListener("visibilitychange", this.dailyEodVisibilityHandler);
+      if (this.dailyEodFocusHandler) window.removeEventListener("focus", this.dailyEodFocusHandler);
     },
 
     t(key) { return translate(this.locale, key); },
@@ -692,33 +707,70 @@ export function registerWorkspace(Alpine) {
       this.bonusXp += reward;
       this.showToast(this.t("actionDone"), `${this.t("actionDoneCopy")} +${reward} XP`);
     },
-    hydrateDailyEod(snapshot = {}) {
+    setupDailyEodRefresh() {
+      if (this.preview) return;
+      this.dailyEodVisibilityHandler ||= () => {
+        if (!document.hidden) this.refreshDailyEod({ preserveDraft: true });
+      };
+      this.dailyEodFocusHandler ||= () => this.refreshDailyEod({ preserveDraft: true });
+      document.addEventListener("visibilitychange", this.dailyEodVisibilityHandler);
+      window.addEventListener("focus", this.dailyEodFocusHandler);
+      this.scheduleDailyEodRefresh();
+    },
+    scheduleDailyEodRefresh() {
+      window.clearTimeout(this.dailyEodRefreshTimer);
+      if (this.preview) return;
+      const dueAt = new Date(this.dailyEod.dueAt || "").getTime();
+      const untilDue = Number.isFinite(dueAt) && dueAt > Date.now() ? dueAt - Date.now() + 1000 : Infinity;
+      this.dailyEodRefreshTimer = setTimeout(() => this.refreshDailyEod({ preserveDraft: true }), Math.max(1000, Math.min(300000, untilDue)));
+    },
+    hydrateDailyEod(snapshot = {}, { preserveDraft = false } = {}) {
+      const localDraft = this.dailyEodForm;
+      const incomingScope = `${snapshot?.serverDate || ""}:${snapshot?.projectId || snapshot?.myBrief?.projectId || ""}`;
+      const sameScope = !this.dailyEodDraftScope || this.dailyEodDraftScope === incomingScope;
+      const keepDraft = preserveDraft && this.dailyEodDirty && sameScope;
       this.data.dailyEod = snapshot || {};
       const manager = (snapshot?.members || []).find((member) => member.role === "admin");
       const defaults = {
         engagementManagerId: manager?.userId || "",
         personInChargeId: this.dailyEodUserId || "",
       };
-      this.dailyEodForm = createDailyEodDraft(snapshot?.myBrief || defaults);
+      this.dailyEodForm = keepDraft
+        ? createDailyEodDraft(localDraft)
+        : createDailyEodDraft(snapshot?.myBrief || defaults);
+      if (preserveDraft && this.dailyEodDirty && !sameScope) {
+        this.dailyEodNotice = { tone: "warning", text: "The EOD workday or project changed. The previous draft was not carried into the new brief." };
+      }
+      this.dailyEodDraftScope = incomingScope;
+      if (!keepDraft) this.dailyEodDirty = false;
     },
     toggleDailyEodOwner(owner, target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       form.executiveOwners = toggleExecutiveOwner(form.executiveOwners, owner);
+      if (target === "own") this.dailyEodDirty = true;
     },
     addDailyEodEvidence(target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       form.evidenceLinks.push({ sourceType: "onedrive", label: "", url: "" });
+      if (target === "own") this.dailyEodDirty = true;
     },
     removeDailyEodEvidence(index, target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       if (form.evidenceLinks.length === 1) {
         form.evidenceLinks.splice(0, 1, { sourceType: "onedrive", label: "", url: "" });
+        if (target === "own") this.dailyEodDirty = true;
         return;
       }
       form.evidenceLinks.splice(index, 1);
+      if (target === "own") this.dailyEodDirty = true;
     },
     async saveDailyEod(workflowStatus) {
-      const payload = { ...this.dailyEodForm, workflowStatus };
+      const payload = {
+        ...this.dailyEodForm,
+        workflowStatus,
+        scopeDate: this.dailyEod.serverDate,
+        scopeProjectId: this.dailyEod.projectId || this.dailyEod.myBrief?.projectId,
+      };
       if (workflowStatus === "submitted") {
         const errors = validateDailyEodBrief(payload);
         if (errors.length) {
@@ -759,16 +811,40 @@ export function registerWorkspace(Alpine) {
           await this.refreshDailyEod();
           await this.searchDailyEodReports(1);
         }
+        this.dailyEodConflictDraft = null;
+        this.dailyEodConflictLoaded = false;
+        this.dailyEodDirty = false;
         this.dailyEodNotice = { tone: "success", text: workflowStatus === "submitted" ? "EOD brief submitted for administrator check." : "Draft saved. Your daily requirement is complete only after submission." };
       } catch (reason) {
+        if (reason instanceof Error && reason.message.includes("EOD_STALE_WRITE")) {
+          this.dailyEodConflictDraft = createDailyEodDraft(payload);
+          this.dailyEodConflictLoaded = false;
+        }
         this.dailyEodNotice = { tone: "error", text: readableError(reason, "Unable to save the EOD brief.") };
       } finally {
         this.savingDailyEod = false;
       }
     },
+    async reloadDailyEodConflict() {
+      if (!this.dailyEodConflictDraft) return;
+      const loaded = await this.refreshDailyEod({ throwOnError: true });
+      if (!loaded) return;
+      this.dailyEodConflictLoaded = true;
+      this.dailyEodNotice = { tone: "warning", text: "The latest saved brief is loaded. Review it, or restore your unsaved draft for comparison." };
+    },
+    restoreDailyEodConflictDraft() {
+      if (!this.dailyEodConflictDraft || !this.dailyEodConflictLoaded) return;
+      this.dailyEodForm = createDailyEodDraft({
+        ...this.dailyEodConflictDraft,
+        id: this.dailyEod.myBrief?.id || this.dailyEodConflictDraft.id,
+        updatedAt: this.dailyEod.myBrief?.updatedAt || null,
+      });
+      this.dailyEodDirty = true;
+      this.dailyEodNotice = { tone: "warning", text: "Your unsaved draft is restored over the latest version. Review every field before saving." };
+    },
     openDailyEodRecord(record) {
       if (!record) return;
-      this.dailyEodReturnFocus = document.activeElement;
+      if (!this.selectedDailyEod) this.dailyEodReturnFocus = document.activeElement;
       this.selectedDailyEod = record;
       this.dailyEodAdminForm = createDailyEodDraft(record);
       this.dailyEodAdminReason = "";
@@ -920,13 +996,21 @@ export function registerWorkspace(Alpine) {
         this.loadingDailyEodReports = false;
       }
     },
-    async refreshDailyEod() {
+    async refreshDailyEod({ preserveDraft = false, throwOnError = false } = {}) {
+      const sequence = ++this.dailyEodRefreshSequence;
       this.dailyEodError = "";
       try {
         const snapshot = await loadDailyEod();
-        this.hydrateDailyEod(snapshot);
+        if (sequence !== this.dailyEodRefreshSequence) return false;
+        this.hydrateDailyEod(snapshot, { preserveDraft });
+        return true;
       } catch (reason) {
+        if (sequence !== this.dailyEodRefreshSequence) return false;
         this.dailyEodError = readableError(reason, "The EOD brief is temporarily unavailable.");
+        if (throwOnError) throw reason;
+        return false;
+      } finally {
+        if (sequence === this.dailyEodRefreshSequence) this.scheduleDailyEodRefresh();
       }
     },
      async refreshDashboard() {

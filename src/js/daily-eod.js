@@ -67,6 +67,7 @@ export function toggleExecutiveOwner(selected, owner) {
 
 export function filterDailyEodTeam(team, filter) {
   if (!filter || filter === "all") return team || [];
+  if (filter === "missing") return (team || []).filter((member) => ["missing", "draft"].includes(member.workflowStatus));
   return (team || []).filter((member) => member.workflowStatus === filter);
 }
 
@@ -75,7 +76,7 @@ export function dailyEodAttentionCount(snapshot, role, currentUserId = null) {
   if (role !== "admin") return ownDue;
   const teamAttention = (snapshot?.teamToday || []).filter((member) => {
     if (currentUserId && member.userId === currentUserId && ownDue) return false;
-    return ["missing", "submitted"].includes(member.workflowStatus);
+    return ["missing", "draft", "submitted"].includes(member.workflowStatus);
   }).length;
   return ownDue + teamAttention;
 }

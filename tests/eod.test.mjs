@@ -61,12 +61,14 @@ test("keeps None mutually exclusive with named executive owners", () => {
 test("filters admin oversight and counts only actionable EOD records", () => {
   const team = [
     { userId: "1", workflowStatus: "missing" },
-    { userId: "2", workflowStatus: "submitted" },
-    { userId: "3", workflowStatus: "completed" },
+    { userId: "2", workflowStatus: "draft" },
+    { userId: "3", workflowStatus: "submitted" },
+    { userId: "4", workflowStatus: "completed" },
   ];
 
-  assert.deepEqual(filterDailyEodTeam(team, "submitted").map((item) => item.userId), ["2"]);
-  assert.equal(dailyEodAttentionCount({ dueState: "due", teamToday: team }, "admin"), 3);
+  assert.deepEqual(filterDailyEodTeam(team, "missing").map((item) => item.userId), ["1", "2"]);
+  assert.deepEqual(filterDailyEodTeam(team, "submitted").map((item) => item.userId), ["3"]);
+  assert.equal(dailyEodAttentionCount({ dueState: "due", teamToday: team }, "admin"), 4);
   assert.equal(dailyEodAttentionCount({ dueState: "completed", teamToday: team }, "intern"), 0);
 });
 
