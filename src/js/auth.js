@@ -7,9 +7,15 @@ export async function getSession() {
 }
 
 export async function requireWorkspaceAccess() {
-  const { data, error } = await getSupabaseClient().rpc("rpc_current_user_context");
-  if (error || !data) throw new Error("Your account is not assigned to the AOI workspace.");
-  return data;
+  const client = getSupabaseClient();
+  let context = await client.rpc("rpc_current_user_context");
+  if (!context.error && context.data) return context.data;
+
+  const accepted = await client.rpc("rpc_accept_invitation");
+  if (!accepted.error && accepted.data) return accepted.data;
+  context = await client.rpc("rpc_current_user_context");
+  if (context.error || !context.data) throw new Error("Your account is not assigned to the AOI workspace.");
+  return context.data;
 }
 
 export async function signIn(email, password) {
@@ -41,4 +47,14 @@ export async function getExistingWorkspaceAccess() {
 
 export async function signOut() {
   await getSupabaseClient().auth.signOut();
+}
+
+export async function completePasswordChange(password) {
+  if (String(password || "").length < 12) throw new Error("Choose a password with at least 12 characters.");
+  const client = getSupabaseClient();
+  const { data, error } = await client.functions.invoke("admin-create-user", {
+    body: { action: "complete_password_change", password },
+  });
+  if (error || data?.error) throw new Error(data?.error || error?.message || "Unable to change the password.");
+  return data.access;
 }

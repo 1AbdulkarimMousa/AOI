@@ -5,14 +5,15 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 const dist = new URL("../dist/", import.meta.url);
 
-test("builds the AOI landing, login, administrator, and intern pages", async () => {
+test("builds the AOI landing, login, workspace, administration, and intern pages", async () => {
   const pages = await Promise.all([
     readFile(new URL("index.html", dist), "utf8"),
     readFile(new URL("login.html", dist), "utf8"),
     readFile(new URL("workspace.html", dist), "utf8"),
     readFile(new URL("interns.html", dist), "utf8"),
+    readFile(new URL("administration.html", dist), "utf8"),
   ]);
-  const [landing, login, workspace, interns] = pages;
+  const [landing, login, workspace, interns, administration] = pages;
 
   assert.match(landing, /<title>Ambiloop Ops \| Evidence to PMF Decisions<\/title>/i);
   assert.match(landing, /data-page="landing"/);
@@ -20,6 +21,7 @@ test("builds the AOI landing, login, administrator, and intern pages", async () 
   assert.match(login, /Protected sign-in/);
   assert.match(workspace, /data-expected-role="admin"/);
   assert.match(interns, /data-expected-role="intern"/);
+  assert.match(administration, /data-page="administration"/);
   assert.doesNotMatch(pages.join(""), /http-equiv="refresh"|__next|react-server-dom/i);
 });
 

@@ -1,0 +1,86 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const root = new URL("../", import.meta.url);
+
+test("ships a dedicated, admin-protected Administration entry", async () => {
+  const [page, app, vite] = await Promise.all([
+    readFile(new URL("administration.html", root), "utf8"),
+    readFile(new URL("src/js/app.js", root), "utf8"),
+    readFile(new URL("vite.config.js", root), "utf8"),
+  ]);
+
+  assert.match(page, /data-page="administration"/);
+  assert.match(page, /data-expected-role="admin"/);
+  assert.match(page, /id="administration-app"/);
+  assert.match(app, /registerAdministration/);
+  assert.match(vite, /administration:\s*resolve/);
+});
+
+test("moves Administration out of the workspace and links to the standalone page", async () => {
+  const [template, controller] = await Promise.all([
+    readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+    readFile(new URL("src/js/workspace.js", root), "utf8"),
+  ]);
+
+  assert.match(template, /administrationUrl/);
+  assert.doesNotMatch(template, /x-show="view==='admin'/);
+  assert.doesNotMatch(controller, /submitUser\(\)/);
+});
+
+test("provides people, work, data, archive, and guide workflows", async () => {
+  const [template, controller, styles] = await Promise.all([
+    readFile(new URL("src/js/administration-template.js", root), "utf8"),
+    readFile(new URL("src/js/administration.js", root), "utf8"),
+    readFile(new URL("src/css/aoi.css", root), "utf8"),
+  ]);
+
+  for (const label of ["Overview", "People", "Work & CRM", "Data", "Archive & Audit", "Guides"]) assert.match(template + controller, new RegExp(label.replace("&", "&amp;|&")));
+  assert.match(template, /Add person/);
+  assert.match(template, /Import/);
+  assert.match(template, /Export/);
+  assert.match(template, /Archive person/);
+  assert.match(template, /role="dialog"/);
+  assert.match(controller, /requireWorkspaceAccess/);
+  assert.match(controller, /access\.role !== "admin"/);
+  assert.match(controller, /acceptanceCriteria/);
+  assert.match(controller, /trapDrawerFocus/);
+  assert.match(styles, /\.administration-shell/);
+  assert.match(styles, /@media \(max-width: 560px\)/);
+});
+
+test("adds a role-specific onboarding guide for interns", async () => {
+  const template = await readFile(new URL("src/js/workspace-template.js", root), "utf8");
+  assert.match(template, /Intern onboarding/);
+  assert.match(template, /Secure your account/);
+  assert.match(template, /File your EOD brief/);
+  assert.match(template, /completeInternOnboarding/);
+});
+
+test("supports invite, temporary-password, archive, restore, and session revocation actions", async () => {
+  const source = await readFile(new URL("supabase/functions/admin-create-user/index.ts", root), "utf8");
+
+  assert.match(source, /inviteUserByEmail/);
+  assert.match(source, /accessMethod/);
+  assert.match(source, /rpc_admin_archive_user/);
+  assert.match(source, /rpc_admin_restore_user/);
+  assert.match(source, /ban_duration/);
+  assert.match(source, /complete_password_change/);
+  assert.match(source, /cleanupProvisioning/);
+  assert.match(source, /action === "import"/);
+});
+
+test("activates invitations and blocks temporary-password users until they choose a new password", async () => {
+  const [auth, login, page] = await Promise.all([
+    readFile(new URL("src/js/auth.js", root), "utf8"),
+    readFile(new URL("src/js/login.js", root), "utf8"),
+    readFile(new URL("login.html", root), "utf8"),
+  ]);
+
+  assert.match(auth, /rpc_accept_invitation/);
+  assert.match(auth, /complete_password_change/);
+  assert.match(login, /mustChangePassword/);
+  assert.match(page, /Choose a new password/);
+  assert.match(auth, /complete_password_change/);
+});

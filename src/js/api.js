@@ -220,23 +220,88 @@ export async function listAdminUsers() {
   return data ?? [];
 }
 
+export async function loadAdministrationOverview() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_admin_overview");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadAdministrationPeople(filters = {}) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_admin_people", {
+    p_query: filters.query || null,
+    p_role: filters.role && filters.role !== "all" ? filters.role : null,
+    p_status: filters.status && filters.status !== "all" ? filters.status : null,
+  });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function loadAdministrationPerson(userId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_admin_person_detail", { p_user_id: userId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function updateAdministrationPerson(userId, payload) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_admin_upsert_staff_profile", {
+    p_user_id: userId,
+    p_payload: payload,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function runAdministrationUserAction(action, input) {
+  const { data, error } = await getSupabaseClient().functions.invoke("admin-create-user", {
+    body: { action, ...input },
+  });
+  if (error) throw new Error(error.message || "Unable to update the user.");
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function exportAdministrationData(scope = "full") {
+  const { data, error } = await getSupabaseClient().rpc("rpc_admin_export_data", { p_scope: scope });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function importAdministrationData(packageData, mode = "preview", previewJobId = null, previewMode = "merge") {
+  const client = getSupabaseClient();
+  if (mode !== "preview") {
+    const { data, error } = await client.functions.invoke("admin-create-user", {
+      body: { action: "import", packageData, mode, previewJobId },
+    });
+    if (error || data?.error) throw new Error(data?.error || error?.message || "Unable to apply the administration import.");
+    return data.result;
+  }
+  const { data, error } = await client.rpc("rpc_admin_import_data", {
+    p_package: packageData,
+      p_mode: mode,
+      p_preview_job_id: null,
+      p_preview_mode: previewMode,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function createAdminUser(input) {
   const { data, error } = await getSupabaseClient().functions.invoke("admin-create-user", { body: input });
   if (error) throw new Error(error.message || "Unable to create the user.");
   if (!data?.user) throw new Error(data?.error || "Unable to create the user.");
-  return data.user;
+  return data;
 }
 
 export async function createAdminTask(input) {
-  const { data, error } = await getSupabaseClient().rpc("rpc_admin_create_task", {
-    task_title: input.title,
-    task_objective: input.objective,
-    task_priority: input.priority,
-    task_due_date: input.dueDate || null,
-    task_pmf_layer: input.pmfLayer,
-    task_assigned_to: input.assignedTo || null,
-    task_estimated_hours: input.estimatedHours || null,
-    task_points: Number(input.points) || 0,
+  const { data, error } = await getSupabaseClient().rpc("rpc_admin_create_task_v2", { p_task: input });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function completeOnboardingStep(stepKey) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_update_onboarding_step", {
+    p_step_key: stepKey,
+    p_status: "completed",
   });
   if (error) throw new Error(error.message);
   return data;

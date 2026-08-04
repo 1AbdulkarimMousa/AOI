@@ -2,12 +2,10 @@ import {
   addEvidence,
   adminUpdateDailyEodBrief,
   appendConsentVersion,
-  createAdminTask,
-  createAdminUser,
   createGateSnapshot,
+  completeOnboardingStep,
   importCandidates,
   logCrmActivity,
-  listAdminUsers,
   loadDailyEod,
   loadDailyEodReports,
   loadDashboard,
@@ -27,21 +25,6 @@ import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "
 import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, rewardForAction } from "./crm.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
-
-function defaultTask() {
-  const date = new Date();
-  date.setDate(date.getDate() + 7);
-  return {
-    title: "",
-    objective: "",
-    priority: "medium",
-    dueDate: date.toISOString().slice(0, 10),
-    pmfLayer: "H1 · Need Truth",
-    assignedTo: "",
-    estimatedHours: 4,
-    points: 100,
-  };
-}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -100,12 +83,11 @@ export function registerWorkspace(Alpine) {
   Alpine.data("workspacePage", () => ({
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
+    administrationUrl: pageUrl(import.meta.env.BASE_URL, "administration.html"),
     access: null,
     data: fallbackDashboard,
-    users: [],
     ready: false,
     loading: true,
-    loadingUsers: false,
     preview: false,
     error: "",
     view: document.body.dataset.expectedRole === "intern" ? "today" : "overview",
@@ -157,12 +139,6 @@ export function registerWorkspace(Alpine) {
      evidenceForm: { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" },
     toast: null,
     bonusXp: 0,
-    savingUser: false,
-    savingTask: false,
-    userNotice: null,
-    taskNotice: null,
-    userForm: { displayName: "", email: "", password: "", role: "intern" },
-     taskForm: defaultTask(),
       dailyEodForm: createDailyEodDraft(),
       dailyEodNotice: null,
       dailyEodError: "",
@@ -205,6 +181,8 @@ export function registerWorkspace(Alpine) {
     async init() {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
       document.documentElement.lang = this.locale;
+      const requestedView = new URLSearchParams(location.search).get("view");
+      if (this.navigation.some((item) => item.id === requestedView)) this.view = requestedView;
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
         const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
@@ -220,13 +198,16 @@ export function registerWorkspace(Alpine) {
         this.preview = true;
         this.ready = true;
         this.loading = false;
-        if (this.expectedRole === "admin") await this.loadPreviewUsers();
         return;
       }
 
       try {
         const access = await getExistingWorkspaceAccess();
         if (!access) {
+          location.replace(pageUrl(import.meta.env.BASE_URL, "login.html"));
+          return;
+        }
+        if (access.mustChangePassword) {
           location.replace(pageUrl(import.meta.env.BASE_URL, "login.html"));
           return;
         }
@@ -238,9 +219,8 @@ export function registerWorkspace(Alpine) {
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
         this.ready = true;
-         await this.refreshDashboard();
-         await this.refreshDailyEod();
-        if (access.role === "admin") await this.refreshUsers();
+        await this.refreshDashboard();
+        await this.refreshDailyEod();
         this.setupDailyEodRefresh();
       } catch (reason) {
         this.error = readableError(reason, "Unable to open the AOI workspace.");
@@ -286,8 +266,6 @@ export function registerWorkspace(Alpine) {
       return this.data.tasks;
     },
     get focusTasks() { return this.data.tasks.filter((task) => ["submitted", "revision_requested", "blocked"].includes(task.status)).slice(0, 3); },
-    get activeUsers() { return this.users.filter((user) => user.membership_status === "active"); },
-    get interns() { return this.activeUsers.filter((user) => user.role === "intern"); },
     get dailyEod() { return this.data.dailyEod || {}; },
     get dailyEodMembers() { return this.dailyEod.members || []; },
     get dailyEodUserId() { return this.preview ? (this.expectedRole === "admin" ? "preview-admin" : "m1") : this.access?.userId; },
@@ -381,7 +359,6 @@ export function registerWorkspace(Alpine) {
 
     setView(view) {
       view = { research: "collect", pmf: "analyze" }[view] || view;
-      if (view === "admin" && this.access?.role !== "admin") return;
       this.view = view;
       if (view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
       this.mobileNav = false;
@@ -401,6 +378,14 @@ export function registerWorkspace(Alpine) {
     showToast(title, body) {
       this.toast = { title, body };
       setTimeout(() => { this.toast = null; }, 4200);
+    },
+    async completeInternOnboarding(stepKey, destination) {
+      try {
+        if (!this.preview) await completeOnboardingStep(stepKey);
+        this.setView(destination);
+      } catch (reason) {
+        this.showToast("Onboarding step", readableError(reason, "Unable to update onboarding right now."));
+      }
     },
     selectTask(task) { this.selectedTask = { ...task }; },
     selectCandidate(candidate) {
@@ -1056,62 +1041,6 @@ export function registerWorkspace(Alpine) {
       this.hydrateDailyEod(this.data.dailyEod);
       this.dailyEodReportsLoaded = false;
       this.error = "";
-    },
-    loadPreviewUsers() {
-      this.users = fallbackDashboard.dailyEod.members.map((member, index) => ({
-        user_id: member.userId,
-        display_name: member.displayName,
-        login_identifier: `preview${index + 1}@aoi.example`,
-        role: member.role,
-        membership_status: "active",
-        joined_at: fallbackDashboard.generatedAt,
-      }));
-    },
-    async refreshUsers() {
-      if (this.preview) return this.loadPreviewUsers();
-      this.loadingUsers = true;
-      try {
-        this.users = await listAdminUsers();
-      } catch (reason) {
-        this.userNotice = { tone: "error", text: readableError(reason, "Unable to load workspace users.") };
-      } finally {
-        this.loadingUsers = false;
-      }
-    },
-    async submitUser() {
-      this.savingUser = true;
-      this.userNotice = null;
-      try {
-        if (this.preview) throw new Error("Account creation is disabled in preview mode.");
-        const created = await createAdminUser(this.userForm);
-        this.users = [...this.users, created].sort((a, b) => a.display_name.localeCompare(b.display_name));
-        this.userForm = { displayName: "", email: "", password: "", role: "intern" };
-        this.userNotice = { tone: "success", text: `${created.display_name} can now sign in.` };
-      } catch (reason) {
-        this.userNotice = { tone: "error", text: readableError(reason, "Unable to create the user.") };
-      } finally {
-        this.savingUser = false;
-      }
-    },
-    async submitTask() {
-      this.savingTask = true;
-      this.taskNotice = null;
-      try {
-        if (this.preview) throw new Error("Task creation is disabled in preview mode.");
-        await createAdminTask(this.taskForm);
-        this.taskForm = defaultTask();
-        this.taskNotice = { tone: "success", text: "Task created and added to the AOI work queue." };
-        await this.refreshDashboard();
-      } catch (reason) {
-        this.taskNotice = { tone: "error", text: readableError(reason, "Unable to create the task.") };
-      } finally {
-        this.savingTask = false;
-      }
-    },
-    async copyPassword() {
-      if (!this.userForm.password) return;
-      await navigator.clipboard.writeText(this.userForm.password);
-      this.userNotice = { tone: "success", text: "Temporary password copied. Share it through a secure channel." };
     },
     exportDashboard() {
       downloadCsv(`aoi-dashboard-${this.locale}.csv`, [

@@ -13,8 +13,8 @@ import {
 
 const root = new URL("../", import.meta.url);
 
-test("defines all four static application entry pages", async () => {
-  const entries = ["index.html", "login.html", "workspace.html", "interns.html"];
+test("defines all five static application entry pages", async () => {
+  const entries = ["index.html", "login.html", "workspace.html", "interns.html", "administration.html"];
   const missing = [];
 
   for (const entry of entries) {
@@ -49,6 +49,7 @@ test("configures Vite as a repository-relative multi-page build", async () => {
   assert.match(config, /login:\s*resolve/);
   assert.match(config, /workspace:\s*resolve/);
   assert.match(config, /interns:\s*resolve/);
+  assert.match(config, /administration:\s*resolve/);
 });
 
 test("builds repository-relative page URLs", () => {
@@ -107,11 +108,12 @@ test("scopes synthetic intern previews to the selected intern", () => {
 });
 
 test("wires every entry page to its Alpine controller", async () => {
-  const [landing, login, workspace, interns] = await Promise.all([
+  const [landing, login, workspace, interns, administration] = await Promise.all([
     readFile(new URL("index.html", root), "utf8"),
     readFile(new URL("login.html", root), "utf8"),
     readFile(new URL("workspace.html", root), "utf8"),
     readFile(new URL("interns.html", root), "utf8"),
+    readFile(new URL("administration.html", root), "utf8"),
   ]);
 
   assert.match(landing, /data-page="landing"/);
@@ -124,6 +126,8 @@ test("wires every entry page to its Alpine controller", async () => {
   assert.match(workspace, /data-expected-role="admin"/);
   assert.match(interns, /data-page="workspace"/);
   assert.match(interns, /data-expected-role="intern"/);
+  assert.match(administration, /data-page="administration"/);
+  assert.match(administration, /data-expected-role="admin"/);
 });
 
 test("keeps Supabase access behind authenticated RPCs and an Edge Function", async () => {
@@ -132,7 +136,7 @@ test("keeps Supabase access behind authenticated RPCs and an Edge Function", asy
 
   assert.match(api, /rpc\("rpc_aoi_demo_dashboard"\)/);
   assert.match(api, /rpc\("rpc_admin_list_users"\)/);
-  assert.match(api, /rpc\("rpc_admin_create_task"/);
+  assert.match(api, /rpc\("rpc_admin_create_task_v2"/);
   assert.match(api, /functions\.invoke\("admin-create-user"/);
   assert.match(auth, /rpc\("rpc_current_user_context"\)/);
   assert.match(auth, /await signOut\(\)/);
@@ -161,7 +165,7 @@ test("ships role-aware workspace, localization, theme, and CSV behavior", async 
   assert.match(template, /PMF validation/);
   assert.match(template, /Reports/);
   assert.match(template, /Team momentum/);
-  assert.match(template, /Administration/);
+  assert.match(controller, /administration\.html/);
   assert.match(template, /class="admin-nav-group"/);
   assert.match(styles, /\.admin-nav-group\s*>\s*button/);
 });
