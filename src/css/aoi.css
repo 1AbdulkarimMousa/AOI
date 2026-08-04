@@ -3362,3 +3362,68 @@ footer {
   .admin-user-list article { grid-template-columns: 38px minmax(0,1fr); }
   .admin-role { grid-column: 2; }
 }
+
+.operations-grid { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(290px,.75fr); gap: 18px; margin-top: 18px; }
+.outreach-stats { margin-bottom: 0; }
+.recommendation-list, .category-list { padding: 0 22px 20px; }
+.recommendation-card { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 10px; padding: 13px 0; border-top: 1px solid var(--line); }
+.recommendation-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; background: var(--orange-soft); color: var(--orange-dark); font-weight: 800; }
+.recommendation-critical .recommendation-icon { background: var(--rose-soft); color: var(--rose); }
+.recommendation-card strong { font-size: 11px; }
+.recommendation-card p { margin: 4px 0; color: var(--ink-soft); font-size: 9px; line-height: 1.5; }
+.recommendation-card small { color: var(--orange-dark); font-size: 9px; font-weight: 700; line-height: 1.4; }
+.category-row { padding: 12px 0; border-top: 1px solid var(--line); }
+.category-row > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.category-row strong { font-size: 10px; }
+.category-row span { color: var(--ink-faint); font-size: 9px; }
+.candidate-panel { margin-top: 18px; }
+.candidate-heading { align-items: center; }
+.candidate-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.candidate-toolbar > input { width: 190px; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--ink); font-size: 10px; }
+.candidate-table { border-top: 1px solid var(--line); overflow-x: auto; }
+.candidate-table-head, .candidate-row { min-width: 900px; display: grid; grid-template-columns: minmax(220px,1.4fr) 125px 175px 135px minmax(185px,1fr) 18px; gap: 15px; align-items: center; padding: 12px 21px; text-align: left; }
+.candidate-table-head { color: var(--ink-faint); font-size: 8px; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.candidate-row { width: 100%; min-height: 74px; border: 0; border-top: 1px solid var(--line); background: transparent; cursor: pointer; }
+.candidate-row:hover { background: var(--surface-muted); }
+.candidate-row > span:not(.candidate-owner), .candidate-owner { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.candidate-row strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-row small { overflow: hidden; color: var(--ink-faint); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-owner { flex-direction: row !important; align-items: center; }
+.evidence-ledger-grid { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(300px,.8fr); gap: 18px; margin-top: 18px; }
+.evidence-record-list { padding: 0 22px 18px; }
+.evidence-record { display: grid; grid-template-columns: 33px minmax(0,1fr); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
+.evidence-record-top { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+.evidence-record strong { font-size: 11px; line-height: 1.35; }
+.evidence-record p { margin: 5px 0; color: var(--ink-soft); font-size: 9px; line-height: 1.5; }
+.evidence-record small { color: var(--ink-faint); font-size: 8px; }
+.consent-panel { padding-bottom: 22px; }
+.consent-panel .check-list { padding: 0 22px; }
+.import-grid { margin-top: 18px; }
+.import-card { padding-bottom: 22px; }
+.upload-drop { display: grid; gap: 8px; margin: 0 22px 18px; padding: 26px 20px; border: 1px dashed color-mix(in srgb,var(--orange) 50%,var(--line)); border-radius: 14px; background: var(--orange-soft); text-align: center; cursor: pointer; }
+.upload-drop input { width: 100%; color: var(--ink-soft); font-size: 10px; }
+.upload-drop strong { font-size: 12px; }
+.upload-drop small { color: var(--ink-soft); font-size: 9px; }
+.import-preview { margin: 0 22px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.import-preview .panel-heading { padding: 13px; }
+.import-row { display: grid; grid-template-columns: 1.4fr 1fr 100px; gap: 10px; padding: 10px 13px; border-top: 1px solid var(--line); font-size: 9px; }
+.import-row span, .import-row small { color: var(--ink-faint); }
+.candidate-drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(570px,100%); padding: 24px 25px; overflow-y: auto; background: var(--surface); box-shadow: var(--shadow-lg); animation: drawer-in 220ms ease both; }
+.candidate-form { display: grid; gap: 12px; }
+.candidate-form label { display: grid; gap: 6px; }
+.candidate-form label > span { color: var(--ink-soft); font-size: 9px; font-weight: 700; }
+.candidate-form input:not([type="checkbox"]), .candidate-form select, .candidate-form textarea { width: 100%; min-height: 40px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 9px; outline: 0; background: var(--surface); color: var(--ink); font-size: 10px; }
+.candidate-form textarea { min-height: 66px; padding-top: 9px; resize: vertical; }
+.candidate-form input:focus, .candidate-form select:focus, .candidate-form textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 3px color-mix(in srgb,var(--orange) 10%,transparent); }
+.checkbox-line { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 8px !important; }
+.checkbox-line span { color: var(--ink-soft); font-weight: 550 !important; line-height: 1.4; }
+.outreach-log-section { border-top: 1px solid var(--line); }
+.section-kicker { display: block; margin-bottom: 9px; color: var(--orange-dark); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+@keyframes drawer-in { from { transform: translateX(25px); opacity: .3; } to { transform: translateX(0); opacity: 1; } }
+
+@media (max-width: 760px) {
+  .operations-grid, .evidence-ledger-grid { grid-template-columns: 1fr; }
+  .candidate-heading { align-items: flex-start; flex-direction: column; }
+  .candidate-toolbar { width: 100%; justify-content: flex-start; }
+  .candidate-toolbar > input { width: 100%; }
+}

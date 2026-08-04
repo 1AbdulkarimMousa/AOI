@@ -3,6 +3,52 @@ import { getSupabaseClient } from "./supabase.js";
 export async function loadDashboard() {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_demo_dashboard");
   if (error || !data) throw new Error(`SUPABASE_DASHBOARD_FAILED:${error?.code ?? "UNKNOWN"}`);
+  const operations = await getSupabaseClient().rpc("rpc_aoi_operations_snapshot");
+  return operations.error ? data : { ...data, ...operations.data };
+}
+
+export async function upsertCandidate(candidate) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_upsert_candidate", { candidate });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function logOutreach(candidateId, input) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_log_outreach", {
+    candidate_id: candidateId,
+    event_channel: input.channel,
+    event_kind: input.kind,
+    event_status: input.status,
+    event_summary: input.summary,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function addEvidence(candidateId, input) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_add_evidence", {
+    candidate_id: candidateId,
+    evidence_type: input.type,
+    evidence_stance: input.stance,
+    evidence_strength: Number(input.strength) || 1,
+    evidence_title: input.title,
+    evidence_notes: input.notes,
+    evidence_consent: input.consentStatus,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function queueEmail(candidateId, input) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_queue_email", {
+    candidate_id: candidateId,
+    recipient: input.recipient,
+    email_subject: input.subject,
+    email_body: input.body,
+    send_at: input.sendAt || new Date().toISOString(),
+    template_id: input.templateId || null,
+  });
+  if (error) throw new Error(error.message);
   return data;
 }
 

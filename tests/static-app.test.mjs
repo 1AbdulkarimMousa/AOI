@@ -82,10 +82,20 @@ test("scopes synthetic intern previews to the selected intern", () => {
       { id: "1", ownerName: "Kayla Tillmon" },
       { id: "2", ownerName: "Wen Tang" },
     ],
+    candidates: [
+      { id: "c1", ownerName: "Kayla Tillmon" },
+      { id: "c2", ownerName: "Wen Tang" },
+    ],
+    evidenceRecords: [
+      { id: "e1", candidateId: "c1" },
+      { id: "e2", candidateId: "c2" },
+    ],
   };
 
   assert.equal(scopePreviewDashboard(dashboard, "admin", "AOI Administrator").tasks.length, 2);
   assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").tasks.map((task) => task.id), ["1"]);
+  assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").candidates.map((candidate) => candidate.id), ["c1"]);
+  assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").evidenceRecords.map((record) => record.id), ["e1"]);
   assert.equal(dashboard.tasks.length, 2);
 });
 
@@ -162,6 +172,28 @@ test("secures administrator user creation in a Supabase Edge Function", async ()
   assert.doesNotMatch(source, /"Access-Control-Allow-Origin":\s*"\*"/);
   assert.match(config, /\[functions\.admin-create-user\]/);
   assert.match(config, /verify_jwt\s*=\s*false/);
+});
+
+test("includes the persisted outreach, evidence, and email operation contracts", async () => {
+  const [api, template, operations, migration, emailMigration] = await Promise.all([
+    readFile(new URL("src/js/api.js", root), "utf8"),
+    readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+    readFile(new URL("src/js/operations.js", root), "utf8"),
+    readFile(new URL("supabase/migrations/202608040001_outreach_operations.sql", root), "utf8"),
+    readFile(new URL("supabase/migrations/202608040002_email_automation.sql", root), "utf8"),
+  ]);
+
+  assert.match(template, /KOL outreach command center/);
+  assert.match(template, /Evidence & consent ledger/);
+  assert.match(template, /Data portability/);
+  assert.match(operations, /parseCandidateImport/);
+  assert.match(operations, /buildRecommendations/);
+  assert.match(api, /rpc_aoi_operations_snapshot/);
+  assert.match(migration, /create table if not exists public\.candidates/);
+  assert.match(migration, /rpc_aoi_upsert_candidate/);
+  assert.match(migration, /audit_events/);
+  assert.match(emailMigration, /email_deliveries/);
+  assert.match(emailMigration, /ADMIN_APPROVAL_REQUIRED/);
 });
 
 test("deploys only the static dist directory to GitHub Pages", async () => {

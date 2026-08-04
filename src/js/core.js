@@ -42,6 +42,12 @@ export function clamp(value, min = 0, max = 100) {
 
 export function scopePreviewDashboard(dashboard, role, displayName) {
   const copy = structuredClone(dashboard);
-  if (role === "intern") copy.tasks = copy.tasks.filter((task) => task.ownerName === displayName);
+  if (role === "intern") {
+    copy.tasks = copy.tasks.filter((task) => task.ownerName === displayName);
+    copy.candidates = (copy.candidates || []).filter((candidate) => candidate.ownerName === displayName);
+    const candidateIds = new Set((copy.candidates || []).map((candidate) => candidate.id));
+    copy.evidenceRecords = (copy.evidenceRecords || []).filter((record) => candidateIds.has(record.candidateId));
+    copy.outreachEvents = (copy.outreachEvents || []).filter((event) => candidateIds.has(event.candidateId));
+  }
   return copy;
 }

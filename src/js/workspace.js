@@ -1,8 +1,9 @@
-import { createAdminTask, createAdminUser, listAdminUsers, loadDashboard } from "./api.js";
+import { addEvidence, createAdminTask, createAdminUser, listAdminUsers, loadDashboard, logOutreach, upsertCandidate } from "./api.js";
 import { getExistingWorkspaceAccess, signOut } from "./auth.js";
 import { clamp, csvCell, initials, pageUrl, readableError, routeForRole, scopePreviewDashboard } from "./core.js";
 import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
+import { buildCandidateExport, buildRecommendations, parseCandidateImport } from "./operations.js";
 
 function defaultTask() {
   const date = new Date();
@@ -52,7 +53,17 @@ export function registerWorkspace(Alpine) {
     query: "",
     taskFilter: "all",
     selectedTask: null,
-    selectedLayer: null,
+     selectedLayer: null,
+     selectedCandidate: null,
+     candidateEditorOpen: false,
+     candidateFilter: "all",
+     candidateQuery: "",
+     candidateNotice: null,
+     importPreview: null,
+     importErrors: [],
+     candidateForm: { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" },
+     outreachForm: { channel: "Email", kind: "Initial", status: "Drafted", summary: "" },
+     evidenceForm: { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" },
     toast: null,
     bonusXp: 0,
     savingUser: false,
@@ -68,6 +79,9 @@ export function registerWorkspace(Alpine) {
       { id: "pmf", label: "PMF validation" },
       { id: "reports", label: "Reports" },
       { id: "team", label: "Team momentum" },
+      { id: "outreach", label: "KOL outreach" },
+      { id: "evidence", label: "Evidence & consent" },
+      { id: "imports", label: "Import / export" },
     ],
 
     async init() {
@@ -153,6 +167,24 @@ export function registerWorkspace(Alpine) {
       const value = this.query.trim().toLowerCase();
       return this.data.tasks.filter((task) => !value || task.title.toLowerCase().includes(value)).slice(0, 5);
     },
+    get candidates() { return this.data.candidates || []; },
+    get filteredCandidates() {
+      const query = this.candidateQuery.trim().toLowerCase();
+      return this.candidates.filter((candidate) => {
+        const matchesQuery = !query || [candidate.name, candidate.category, candidate.ownerName, candidate.outreachStatus].some((value) => String(value || "").toLowerCase().includes(query));
+        const matchesFilter = this.candidateFilter === "all" || (this.candidateFilter === "attention" && ["Unreachable", "Research needed", "No Response"].includes(candidate.contactReadiness || candidate.outreachStatus)) || (this.candidateFilter === "ready" && ["Ready to Send", "Email ready", "Form ready", "Social DM ready"].includes(candidate.outreachStatus || candidate.contactReadiness)) || (this.candidateFilter === "pmf" && candidate.pmfCandidate);
+        return matchesQuery && matchesFilter;
+      });
+    },
+    get candidateStats() {
+      const candidates = this.candidates;
+      return {
+        total: candidates.length,
+        ready: candidates.filter((candidate) => !["Research needed", "Unreachable"].includes(candidate.contactReadiness)).length,
+        pmf: candidates.filter((candidate) => candidate.pmfCandidate).length,
+        followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= new Date().toISOString().slice(0, 10)).length,
+      };
+    },
 
     setView(view) {
       if (view === "admin" && this.access?.role !== "admin") return;
@@ -176,6 +208,107 @@ export function registerWorkspace(Alpine) {
       setTimeout(() => { this.toast = null; }, 4200);
     },
     selectTask(task) { this.selectedTask = { ...task }; },
+    selectCandidate(candidate) {
+      this.selectedCandidate = { ...candidate };
+      this.candidateForm = { ...this.candidateForm, ...candidate };
+      this.candidateEditorOpen = true;
+    },
+    closeCandidate() {
+      this.selectedCandidate = null;
+      this.candidateEditorOpen = false;
+      this.candidateNotice = null;
+    },
+    async saveCandidate() {
+      const candidate = { ...this.candidateForm, id: this.selectedCandidate?.id || `local-${Date.now()}`, externalId: this.selectedCandidate?.externalId || `local-${this.candidates.length + 1}`, priorityScore: this.selectedCandidate?.priorityScore || 50, priorityBand: this.selectedCandidate?.priorityBand || "Medium", interestLevel: this.selectedCandidate?.interestLevel || "Unknown", lastUpdated: new Date().toISOString().slice(0, 10) };
+      if (!candidate.name.trim()) {
+        this.candidateNotice = { tone: "error", text: "Add a creator or organization name before saving." };
+        return;
+      }
+      if (!this.preview) {
+        try {
+          await upsertCandidate(candidate);
+        } catch (reason) {
+          this.candidateNotice = { tone: "error", text: readableError(reason, "Unable to save the candidate.") };
+          return;
+        }
+      }
+      this.data.candidates = this.selectedCandidate ? this.candidates.map((item) => item.id === candidate.id ? candidate : item) : [candidate, ...this.candidates];
+      this.selectedCandidate = { ...candidate };
+      this.candidateNotice = { tone: "success", text: "Candidate record saved to this workspace view." };
+      this.data.outreachSummary = { ...this.data.outreachSummary, totalCandidates: this.candidates.length };
+    },
+    startNewCandidate() {
+      this.selectedCandidate = null;
+      this.candidateEditorOpen = true;
+      this.candidateForm = { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: this.access?.displayName || "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" };
+      this.candidateNotice = null;
+      this.view = "outreach";
+    },
+    importFile(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new globalThis.FileReader();
+      reader.onload = () => {
+        const result = parseCandidateImport(reader.result);
+        this.importPreview = result.rows;
+        this.importErrors = result.errors;
+        this.candidateNotice = result.errors.length ? { tone: "error", text: `${result.errors.length} row(s) need attention before import.` } : { tone: "success", text: `${result.rows.length} candidate row(s) ready to import.` };
+      };
+      reader.readAsText(file);
+    },
+    commitImport() {
+      if (!this.importPreview?.length) return;
+      const imported = this.importPreview.map((row, index) => ({ ...row, id: `import-${Date.now()}-${index}`, priorityScore: 50, priorityBand: "Medium", interestLevel: "Unknown", lastUpdated: new Date().toISOString().slice(0, 10) }));
+      this.data.candidates = [...imported, ...this.candidates];
+      this.data.outreachSummary = { ...this.data.outreachSummary, totalCandidates: this.candidates.length };
+      this.importPreview = null;
+      this.importErrors = [];
+      this.candidateNotice = { tone: "success", text: `${imported.length} candidates imported into the pipeline.` };
+    },
+    exportCandidates(format) {
+      const exported = buildCandidateExport(this.candidates);
+      const content = format === "json" ? exported.json : exported.csv;
+      const type = format === "json" ? "application/json" : "text/csv;charset=utf-8";
+      const url = URL.createObjectURL(new Blob([content], { type }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `ambiloop-candidates.${format}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.showToast("Export ready", `${this.candidates.length} candidate records exported as ${format.toUpperCase()}.`);
+    },
+    async logOutreach() {
+      if (!this.selectedCandidate || !this.outreachForm.summary.trim()) return;
+      if (!this.preview) {
+        try {
+          await logOutreach(this.selectedCandidate.id, this.outreachForm);
+        } catch (reason) {
+          this.candidateNotice = { tone: "error", text: readableError(reason, "Unable to log outreach.") };
+          return;
+        }
+      }
+      this.data.outreachEvents = [{ id: `outreach-${Date.now()}`, candidateId: this.selectedCandidate.id, ...this.outreachForm, occurredAt: new Date().toISOString(), actorName: this.access?.displayName || "AOI" }, ...(this.data.outreachEvents || [])];
+      this.candidates.splice(this.candidates.findIndex((item) => item.id === this.selectedCandidate.id), 1, { ...this.selectedCandidate, outreachStatus: this.outreachForm.status === "Sent" ? "Sent" : this.selectedCandidate.outreachStatus, lastUpdated: new Date().toISOString().slice(0, 10) });
+      this.outreachForm = { channel: "Email", kind: "Initial", status: "Drafted", summary: "" };
+      this.candidateNotice = { tone: "success", text: "Outreach activity logged with an auditable timestamp." };
+    },
+    async addEvidence() {
+      if (!this.selectedCandidate || !this.evidenceForm.title.trim()) return;
+      if (!this.preview) {
+        try {
+          await addEvidence(this.selectedCandidate.id, this.evidenceForm);
+        } catch (reason) {
+          this.candidateNotice = { tone: "error", text: readableError(reason, "Unable to add evidence.") };
+          return;
+        }
+      }
+      this.data.evidenceRecords = [{ id: `evidence-${Date.now()}`, candidateId: this.selectedCandidate.id, ...this.evidenceForm, recordedBy: this.access?.displayName || "AOI", recordedAt: new Date().toISOString().slice(0, 10) }, ...(this.data.evidenceRecords || [])];
+      this.evidenceForm = { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" };
+      this.candidateNotice = { tone: "success", text: "Evidence record added. Keep consent and limitations explicit." };
+    },
+    recommendations() {
+      return this.data.recommendations?.length ? this.data.recommendations : buildRecommendations({ ...this.data.outreachSummary, ...this.data.campaign, categories: this.data.categories || [] });
+    },
     completeCheckpoint() {
       if (!this.selectedTask) return;
       const reward = Math.min(80, Math.max(30, Math.round(this.selectedTask.points / 3)));
@@ -185,11 +318,21 @@ export function registerWorkspace(Alpine) {
       this.bonusXp += reward;
       this.showToast(this.t("actionDone"), `${this.t("actionDoneCopy")} +${reward} XP`);
     },
-    async refreshDashboard() {
+     async refreshDashboard() {
       this.loading = true;
       this.error = "";
       try {
-        this.data = await loadDashboard();
+         const liveData = await loadDashboard();
+         this.data = {
+           ...liveData,
+           campaign: liveData.campaign || fallbackDashboard.campaign,
+           outreachSummary: liveData.outreachSummary || { totalCandidates: 0, contactReady: 0, contacted: 0, responses: 0, interested: 0, confirmed: 0, pmfCandidates: 0, researchNeeded: 0 },
+           categories: liveData.categories || [],
+           candidates: liveData.candidates || [],
+           outreachEvents: liveData.outreachEvents || [],
+           evidenceRecords: liveData.evidenceRecords || [],
+           recommendations: liveData.recommendations || [],
+         };
         this.preview = false;
       } catch (reason) {
         this.error = readableError(reason, "Live workspace data is unavailable.");
