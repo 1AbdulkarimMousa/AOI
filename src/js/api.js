@@ -15,6 +15,43 @@ export async function loadDashboard() {
   return { ...dashboard.data, ...operations.data, ...pmf.data, ...crm.data };
 }
 
+export async function loadDailyEod() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_daily_eod_snapshot");
+  if (error) throw new Error(error.message);
+  return data?.dailyEod;
+}
+
+export async function saveDailyEodBrief(payload, expectedUpdatedAt = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_save_daily_eod_brief", {
+    p_payload: payload,
+    p_expected_updated_at: expectedUpdatedAt,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function adminUpdateDailyEodBrief(briefId, payload, editReason, expectedUpdatedAt, action = "save") {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_admin_update_daily_eod_brief", {
+    p_brief_id: briefId,
+    p_payload: payload,
+    p_edit_reason: editReason,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_action: action,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadDailyEodReports(filters = {}, page = 1, pageSize = 25) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_daily_eod_reports", {
+    p_filters: filters,
+    p_page: page,
+    p_page_size: pageSize,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function upsertCrmContact(contact) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_upsert_crm_contact", { contact });
   if (error) throw new Error(error.message);

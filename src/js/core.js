@@ -32,6 +32,11 @@ export function readableError(reason, fallback) {
   if (value.includes("TASK_TITLE_REQUIRED")) return "Enter a task title with at least three characters.";
   if (value.includes("ADMIN_REQUIRED")) return "Your administrator access could not be verified.";
   if (value.includes("ASSIGNEE_INVALID")) return "Choose an active AOI user for this task.";
+  if (value.includes("EOD_STALE_WRITE")) return "This EOD brief changed in another session. Reload it before saving.";
+  if (value.includes("EOD_ADMIN_EDIT_REASON_REQUIRED")) return "Add a short reason for the administrator change.";
+  if (value.includes("EOD_ALREADY_COMPLETED")) return "This EOD brief is complete and can now be changed only by an administrator.";
+  if (value.includes("EOD_NOT_REQUIRED_TODAY")) return "EOD briefs are required Monday through Friday.";
+  if (value.includes("EOD_")) return "Check every required EOD field and try again.";
   if (value.toLowerCase().includes("invalid login")) return "The email or password is incorrect.";
   return value || fallback;
 }
@@ -42,6 +47,11 @@ export function clamp(value, min = 0, max = 100) {
 
 export function scopePreviewDashboard(dashboard, role, displayName) {
   const copy = structuredClone(dashboard);
+  const currentEod = (copy.dailyEodReportItems || []).find((brief) => brief.authorName === displayName && brief.briefDate === copy.dailyEod?.serverDate) || null;
+  if (copy.dailyEod) {
+    copy.dailyEod.myBrief = currentEod;
+    copy.dailyEod.dueState = ["submitted", "completed"].includes(currentEod?.workflowStatus) ? currentEod.workflowStatus : "due";
+  }
   if (role === "intern") {
     copy.tasks = copy.tasks.filter((task) => task.ownerName === displayName);
     copy.candidates = (copy.candidates || []).filter((candidate) => candidate.ownerName === displayName);
@@ -60,6 +70,8 @@ export function scopePreviewDashboard(dashboard, role, displayName) {
     copy.valueExchange = (copy.valueExchange || []).filter((record) => visibleResearch(record) && respondentIds.has(record.respondentId));
     copy.observations = (copy.observations || []).filter((record) => visibleResearch(record) && (!record.respondentId || respondentIds.has(record.respondentId)));
     copy.reviewQueue = (copy.reviewQueue || []).filter((record) => record.assignedToName === displayName);
+    copy.dailyEodReportItems = (copy.dailyEodReportItems || []).filter((brief) => brief.authorName === displayName);
+    if (copy.dailyEod) copy.dailyEod.teamToday = [];
   }
   return copy;
 }

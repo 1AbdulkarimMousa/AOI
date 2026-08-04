@@ -90,12 +90,19 @@ test("scopes synthetic intern previews to the selected intern", () => {
       { id: "e1", candidateId: "c1" },
       { id: "e2", candidateId: "c2" },
     ],
+    dailyEod: { serverDate: "2026-08-04", teamToday: [], myBrief: null },
+    dailyEodReportItems: [
+      { id: "b1", authorName: "Kayla Tillmon", briefDate: "2026-08-04", workflowStatus: "submitted" },
+      { id: "b2", authorName: "Wen Tang", briefDate: "2026-08-04", workflowStatus: "completed" },
+    ],
   };
 
   assert.equal(scopePreviewDashboard(dashboard, "admin", "AOI Administrator").tasks.length, 2);
   assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").tasks.map((task) => task.id), ["1"]);
   assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").candidates.map((candidate) => candidate.id), ["c1"]);
   assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").evidenceRecords.map((record) => record.id), ["e1"]);
+  assert.deepEqual(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").dailyEodReportItems.map((record) => record.id), ["b1"]);
+  assert.equal(scopePreviewDashboard(dashboard, "intern", "Kayla Tillmon").dailyEod.myBrief.id, "b1");
   assert.equal(dashboard.tasks.length, 2);
 });
 

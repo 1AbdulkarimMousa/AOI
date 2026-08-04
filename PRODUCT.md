@@ -6,7 +6,7 @@ product
 
 ## Users
 
-AOI administrators and research interns working in a bilingual, role-specific PMF operations workspace. Administrators assign work, review submitted research, approve evidence, and publish Gate decisions. Interns collect assigned respondent, session, product, and commercial evidence and submit it for review.
+AOI administrators and research interns working in a bilingual, role-specific PMF operations workspace. Administrators assign work, review submitted research, approve evidence, publish Gate decisions, and check daily closeouts. Interns collect assigned respondent, session, product, and commercial evidence and submit it for review. Both roles file a structured weekday end-of-day brief so outcomes, blockers, support needs, and next priorities remain searchable.
 
 ## Product Purpose
 

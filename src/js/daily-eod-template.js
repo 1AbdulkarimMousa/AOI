@@ -1,0 +1,82 @@
+function briefFields(model, target) {
+  return String.raw`
+    <div class="eod-section-heading"><span>1</span><div><p>Daily outcome</p><h2>What Moved?</h2></div></div>
+    <div class="eod-field-grid">
+      <label class="eod-field-wide"><span>What tangible outcome moved the project forward today?</span><textarea rows="3" x-model="${model}.movedOutcome"></textarea></label>
+      <label><span>Evidence gathered</span><textarea rows="3" x-model="${model}.evidenceGathered"></textarea></label>
+      <label><span>Deliverables completed</span><textarea rows="3" x-model="${model}.deliverablesCompleted"></textarea></label>
+      <label class="eod-field-wide"><span>Key insight or discovery</span><textarea rows="3" x-model="${model}.keyInsight"></textarea></label>
+    </div>
+
+    <div class="eod-section-heading"><span>2</span><div><p>Constraints</p><h2>What&apos;s Blocked?</h2></div></div>
+    <div class="eod-field-grid eod-field-grid-three">
+      <label><span>Current blocker</span><textarea rows="3" x-model="${model}.currentBlocker" placeholder="Enter None when clear"></textarea></label>
+      <label><span>Impact</span><textarea rows="3" x-model="${model}.blockerImpact" placeholder="Enter None when clear"></textarea></label>
+      <label><span>Proposed solution</span><textarea rows="3" x-model="${model}.proposedSolution" placeholder="Enter None when clear"></textarea></label>
+    </div>
+
+    <div class="eod-section-heading"><span>3</span><div><p>Executive support</p><h2>What Needs You?</h2></div></div>
+    <div class="eod-support-grid">
+      <fieldset class="eod-owner-options"><legend>Owner needed</legend><template x-for="owner in ['Eason','Zhenzhen','Mike','None']" :key="owner"><label><input type="checkbox" :checked="${model}.executiveOwners.includes(owner)" @change="toggleDailyEodOwner(owner,'${target}')"><span x-text="owner"></span></label></template></fieldset>
+      <label><span>Request, one sentence</span><textarea rows="3" x-model="${model}.executiveRequest" placeholder="Enter None when no executive action is needed"></textarea></label>
+    </div>
+
+    <div class="eod-section-heading"><span>4</span><div><p>Next workday</p><h2>What&apos;s On Tomorrow?</h2></div></div>
+    <div class="eod-priority-list"><template x-for="(priority,index) in ${model}.tomorrowPriorities" :key="index"><label><b x-text="index+1"></b><span>Priority</span><input x-model="${model}.tomorrowPriorities[index]" :placeholder="'Priority '+(index+1)"></label></template></div>
+
+    <div class="eod-section-heading"><span>5</span><div><p>Overall readout</p><h2>Status</h2></div></div>
+    <fieldset class="eod-status-options"><legend class="sr-only">Project status</legend><label><input type="radio" value="on_track" x-model="${model}.projectStatus"><span><b>On Track</b><small>Work is moving as planned</small></span></label><label><input type="radio" value="at_risk" x-model="${model}.projectStatus"><span><b>At Risk</b><small>Intervention may be needed</small></span></label><label><input type="radio" value="off_track" x-model="${model}.projectStatus"><span><b>Off Track</b><small>Plan or ownership must change</small></span></label></fieldset>
+
+    <div class="eod-section-heading"><span>6</span><div><p>Traceability</p><h2>Evidence</h2></div></div>
+    <p class="eod-section-copy">Link OneDrive, CRM, Evidence Log, Participant Tracker, or another requested report.</p>
+    <div class="eod-evidence-list"><template x-for="(link,index) in ${model}.evidenceLinks" :key="index"><div class="eod-evidence-row"><label><span>Source</span><select x-model="link.sourceType"><option value="onedrive">OneDrive</option><option value="crm">CRM</option><option value="evidence_log">Evidence Log</option><option value="participant_tracker">Participant Tracker</option><option value="other">Other</option></select></label><label><span>Label</span><input x-model="link.label" placeholder="Interview synthesis"></label><label><span>URL</span><input type="url" x-model="link.url" placeholder="https://"></label><button type="button" class="icon-button" @click="removeDailyEodEvidence(index,'${target}')" aria-label="Remove evidence link">×</button></div></template></div>
+    <button type="button" class="button button-ghost eod-add-evidence" @click="addDailyEodEvidence('${target}')">+ Add evidence link</button>`;
+}
+
+const ownBriefFields = briefFields("dailyEodForm", "own");
+const adminBriefFields = briefFields("dailyEodAdminForm", "admin");
+
+export const dailyEodTemplate = String.raw`
+<section x-show="view==='today' && dailyEod.isWorkday===true" class="eod-reminder" :class="'eod-reminder-'+dailyEod.dueState">
+  <div class="eod-reminder-date"><span x-text="formatDate(dailyEod.serverDate)"></span><b>5 PM</b></div>
+  <div><span class="eyebrow">Daily closeout</span><h2 x-text="dailyEodDueCopy"></h2><p>Capture outcomes, blockers, support needs, and tomorrow&apos;s three priorities.</p></div>
+  <button class="button" :class="dailyEod.dueState==='overdue' ? 'button-primary' : 'button-secondary'" @click="setView('eod')" x-text="dailyEod.myBrief ? 'Open brief' : 'Start brief'"></button>
+</section>
+
+<div x-show="view==='eod'" class="eod-page">
+  <section class="page-intro eod-intro">
+    <div><span class="eyebrow">Daily EOD brief</span><h1>Close the day with a useful record.</h1><p>Write for the next person who needs to act. Every outcome stays connected to evidence.</p></div>
+    <div class="eod-date-lockup"><span x-text="formatDate(dailyEod.serverDate)"></span><strong x-text="dailyEodDueCopy"></strong><small x-text="dailyEod.timezone"></small></div>
+  </section>
+
+  <div x-show="dailyEodError" class="admin-notice error"><span x-text="dailyEodError"></span><button class="text-button" @click="refreshDailyEod()">Retry</button></div>
+  <div x-show="!dailyEodError && dailyEod.isWorkday===false" class="panel eod-weekend"><span>Calendar clear</span><div><h2>No EOD brief is required today.</h2><p>Weekday history remains available in the report archive below.</p></div></div>
+
+  <section x-show="dailyEod.isWorkday===true" class="eod-layout">
+    <form class="panel eod-form" @submit.prevent>
+      <div class="eod-form-top"><div><span class="eyebrow">Your brief</span><h2 x-text="dailyEod.myBrief ? 'Update today’s record' : 'Start today’s record'"></h2></div><span class="status-badge" :class="'status-'+(dailyEodForm.workflowStatus||'draft')" x-text="(dailyEodForm.workflowStatus||'draft').replaceAll('_',' ')"></span></div>
+      <fieldset class="eod-form-fields" :disabled="dailyEodLocked">
+        <div class="eod-identity-grid"><label><span>Owner, Engagement Manager</span><select x-model="dailyEodForm.engagementManagerId"><option value="">Choose owner</option><template x-for="member in dailyEodMembers" :key="member.userId"><option :value="member.userId" :selected="dailyEodForm.engagementManagerId===member.userId" x-text="member.displayName+' · '+member.role"></option></template></select></label><label><span>Name of Person In Charge</span><select x-model="dailyEodForm.personInChargeId"><option value="">Choose person</option><template x-for="member in dailyEodMembers" :key="member.userId"><option :value="member.userId" :selected="dailyEodForm.personInChargeId===member.userId" x-text="member.displayName+' · '+member.role"></option></template></select></label></div>
+        ${ownBriefFields}
+      </fieldset>
+      <div x-show="dailyEodNotice" class="admin-notice" :class="dailyEodNotice?.tone" role="status" x-text="dailyEodNotice?.text"></div>
+      <div class="eod-form-actions"><span x-show="dailyEodForm.submittedAt" x-text="(dailyEodForm.isLate ? 'Submitted late · ' : 'Submitted · ')+formatDate(dailyEodForm.submittedAt?.slice(0,10))"></span><template x-if="!dailyEodLocked"><div><button x-show="dailyEodForm.workflowStatus==='draft'" type="button" class="button button-secondary" :disabled="savingDailyEod" @click="saveDailyEod('draft')">Save draft</button><button type="button" class="button button-primary" :disabled="savingDailyEod" @click="saveDailyEod('submitted')" x-text="savingDailyEod ? 'Saving…' : (dailyEodForm.workflowStatus==='submitted' ? 'Save submitted brief' : 'Submit brief')"></button></div></template><span x-show="dailyEodLocked">This record was completed by an administrator.</span></div>
+    </form>
+
+    <aside class="eod-status-rail"><section><span class="eod-rail-mark" :data-state="dailyEod.dueState"></span><small>Today&apos;s requirement</small><strong x-text="dailyEodDueCopy"></strong><p x-text="dailyEod.myBrief?.submittedAt ? 'Submitted '+(dailyEod.myBrief.isLate ? 'after the cutoff.' : 'before the cutoff.') : 'Submission, not a draft, completes today’s requirement.'"></p></section><section><small>Required evidence</small><strong>At least one source</strong><p>Use a labeled URL so reviewers can open the supporting record directly.</p></section><section><small>After submission</small><strong>Administrator check</strong><p>All administrators can read the brief. One administrator completes the record.</p></section></aside>
+  </section>
+
+  <section x-show="access.role==='admin'" class="panel eod-oversight">
+    <div class="panel-heading"><div><span class="eyebrow">Administrator oversight</span><h2>Today&apos;s team closeout</h2></div><div class="filter-tabs"><button :class="dailyEodTeamFilter==='all'&&'active'" @click="dailyEodTeamFilter='all'">All</button><button :class="dailyEodTeamFilter==='missing'&&'active'" @click="dailyEodTeamFilter='missing'">Missing today</button><button :class="dailyEodTeamFilter==='submitted'&&'active'" @click="dailyEodTeamFilter='submitted'">Submitted</button><button :class="dailyEodTeamFilter==='completed'&&'active'" @click="dailyEodTeamFilter='completed'">Completed</button></div></div>
+    <div class="eod-team-list"><template x-for="member in filteredDailyEodTeam" :key="member.userId"><button :disabled="!member.brief" @click="openDailyEodRecord(member.brief)"><span class="avatar avatar-sm" x-text="initials(member.displayName)"></span><span><strong x-text="member.displayName"></strong><small x-text="member.role+' · '+(member.submittedAt ? formatDate(member.submittedAt.slice(0,10)) : 'No submission')"></small></span><span class="status-badge" :class="'status-'+member.workflowStatus" x-text="member.workflowStatus.replaceAll('_',' ')"></span><span x-text="member.brief ? 'Open ›' : 'Waiting'"></span></button></template><div x-show="!filteredDailyEodTeam.length" class="empty-state compact"><strong>No records in this filter.</strong><p>Change the filter to review another completion state.</p></div></div>
+  </section>
+
+  <section class="panel eod-reports">
+    <div class="panel-heading"><div><span class="eyebrow">Reports</span><h2>EOD report archive</h2></div><span class="review-count" x-text="dailyEodReports.total"></span></div>
+    <form class="eod-report-filters" @submit.prevent="searchDailyEodReports(1)"><label x-show="access.role==='admin'"><span>Person</span><input x-model="dailyEodReportFilters.search" placeholder="Author, manager, or PIC"></label><label><span>From</span><input type="date" x-model="dailyEodReportFilters.fromDate"></label><label><span>To</span><input type="date" x-model="dailyEodReportFilters.toDate"></label><label x-show="access.role==='admin'"><span>Role</span><select x-model="dailyEodReportFilters.authorRole"><option value="">All roles</option><option value="admin">Admin</option><option value="intern">Intern</option></select></label><label><span>Status</span><select x-model="dailyEodReportFilters.projectStatus"><option value="">All statuses</option><option value="on_track">On Track</option><option value="at_risk">At Risk</option><option value="off_track">Off Track</option></select></label><label><span>Record</span><select x-model="dailyEodReportFilters.workflowStatus"><option value="">All records</option><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="completed">Completed</option></select></label><button class="button button-secondary" :disabled="loadingDailyEodReports" x-text="loadingDailyEodReports ? 'Searching…' : 'Search'"></button></form>
+    <div class="eod-report-table"><div class="eod-report-head"><span>Date</span><span>Author</span><span>People</span><span>Project</span><span>Record</span></div><template x-for="record in dailyEodReports.items" :key="record.id"><button @click="openDailyEodRecord(record)"><span><strong x-text="formatDate(record.briefDate)"></strong><small x-text="record.isLate ? 'Late' : 'On time'"></small></span><span><strong x-text="record.authorName"></strong><small x-text="record.authorRole"></small></span><span><strong x-text="record.personInChargeName||'No PIC'"></strong><small x-text="record.engagementManagerName||'No manager'"></small></span><span class="status-badge" :class="'status-'+record.projectStatus" x-text="(record.projectStatus||'draft').replaceAll('_',' ')"></span><span class="status-badge" :class="'status-'+record.workflowStatus" x-text="record.workflowStatus"></span></button></template><div x-show="dailyEodReportsLoaded && !dailyEodReports.items.length" class="empty-state compact"><strong>No EOD briefs found.</strong><p>Adjust the date or status filters.</p></div></div>
+    <div class="eod-pagination" x-show="dailyEodReports.total>dailyEodReports.pageSize"><button class="button button-ghost" :disabled="dailyEodReports.page<=1" @click="searchDailyEodReports(dailyEodReports.page-1)">Previous</button><span x-text="'Page '+dailyEodReports.page+' of '+Math.ceil(dailyEodReports.total/dailyEodReports.pageSize)"></span><button class="button button-ghost" :disabled="dailyEodReports.page*dailyEodReports.pageSize>=dailyEodReports.total" @click="searchDailyEodReports(dailyEodReports.page+1)">Next</button></div>
+  </section>
+</div>
+
+<div x-show="selectedDailyEod" class="modal-backdrop drawer-backdrop" @mousedown.self="closeDailyEodRecord()"><aside class="eod-record-drawer" role="dialog" aria-modal="true"><div class="drawer-header"><span class="eyebrow">EOD record</span><button class="icon-button" @click="closeDailyEodRecord()">×</button></div><div class="drawer-title"><span class="status-badge" :class="'status-'+(selectedDailyEod?.workflowStatus||'draft')" x-text="selectedDailyEod?.workflowStatus"></span><h2 x-text="selectedDailyEod?.authorName+' · '+formatDate(selectedDailyEod?.briefDate)"></h2><p x-text="selectedDailyEod?.submittedAt ? (selectedDailyEod.isLate ? 'Submitted after the 5 PM cutoff.' : 'Submitted on time.') : 'Draft record.'"></p></div><form class="eod-form eod-drawer-form" @submit.prevent><fieldset class="eod-form-fields" :disabled="access.role!=='admin'"><div class="eod-identity-grid"><label><span>Owner, Engagement Manager</span><select x-model="dailyEodAdminForm.engagementManagerId"><template x-for="member in dailyEodMembers" :key="member.userId"><option :value="member.userId" :selected="dailyEodAdminForm.engagementManagerId===member.userId" x-text="member.displayName+' · '+member.role"></option></template></select></label><label><span>Name of Person In Charge</span><select x-model="dailyEodAdminForm.personInChargeId"><template x-for="member in dailyEodMembers" :key="member.userId"><option :value="member.userId" :selected="dailyEodAdminForm.personInChargeId===member.userId" x-text="member.displayName+' · '+member.role"></option></template></select></label></div>${adminBriefFields}</fieldset><template x-if="access.role==='admin'"><div class="eod-admin-actions"><label><span>Edit or completion reason</span><input x-model="dailyEodAdminReason" placeholder="What was checked or changed?"></label><div><button type="button" class="button button-secondary" :disabled="savingDailyEodAdmin" @click="adminCompleteDailyEod('save')">Save audited edit</button><button x-show="selectedDailyEod?.workflowStatus==='submitted'" type="button" class="button button-primary" :disabled="savingDailyEodAdmin" @click="adminCompleteDailyEod('complete')">Mark complete</button></div></div></template><section class="eod-audit" x-show="selectedDailyEod?.auditHistory?.length"><span class="section-kicker">Audit history</span><template x-for="event in selectedDailyEod?.auditHistory||[]" :key="event.id"><div><strong x-text="event.action.replaceAll('_',' ')"></strong><span x-text="event.actorName"></span><small x-text="formatDate(event.createdAt.slice(0,10))"></small></div></template></section></form></aside></div>`;

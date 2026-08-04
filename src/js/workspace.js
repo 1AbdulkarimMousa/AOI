@@ -1,5 +1,6 @@
 import {
   addEvidence,
+  adminUpdateDailyEodBrief,
   appendConsentVersion,
   createAdminTask,
   createAdminUser,
@@ -7,9 +8,12 @@ import {
   importCandidates,
   logCrmActivity,
   listAdminUsers,
+  loadDailyEod,
+  loadDailyEodReports,
   loadDashboard,
   logOutreach,
   reviewResearchRecord as persistResearchReview,
+  saveDailyEodBrief,
   saveResearchRecord as persistResearchRecord,
   uploadResearchAttachment,
   upsertCandidate,
@@ -22,6 +26,7 @@ import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
 import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, rewardForAction } from "./crm.js";
+import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 
 function defaultTask() {
   const date = new Date();
@@ -157,10 +162,27 @@ export function registerWorkspace(Alpine) {
     userNotice: null,
     taskNotice: null,
     userForm: { displayName: "", email: "", password: "", role: "intern" },
-    taskForm: defaultTask(),
+     taskForm: defaultTask(),
+      dailyEodForm: createDailyEodDraft(),
+      dailyEodNotice: null,
+      dailyEodError: "",
+      savingDailyEod: false,
+      dailyEodTeamFilter: "all",
+      selectedDailyEod: null,
+      dailyEodAdminForm: createDailyEodDraft(),
+      dailyEodAdminReason: "",
+      dailyEodAdminNotice: null,
+      dailyEodReturnFocus: null,
+      savingDailyEodAdmin: false,
+      dailyEodReportFilters: { search: "", fromDate: "", toDate: "", authorRole: "", projectStatus: "", workflowStatus: "" },
+      dailyEodReports: { items: [], total: 0, page: 1, pageSize: 25 },
+      dailyEodReportError: "",
+      loadingDailyEodReports: false,
+      dailyEodReportsLoaded: false,
       navigation: [
         { id: "overview", label: "Overview" },
         { id: "today", label: "Today" },
+        { id: "eod", label: "End-of-Day Brief" },
         { id: "crm", label: "CRM" },
         { id: "work", label: "My work" },
        { id: "collect", label: "Collect" },
@@ -178,13 +200,15 @@ export function registerWorkspace(Alpine) {
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
         const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
-        this.access = {
+         this.access = {
+          userId: this.expectedRole === "admin" ? "preview-admin" : "m1",
           role: this.expectedRole,
           displayName: previewName,
           organizationName: fallbackDashboard.organization.name,
           locale: this.locale,
         };
         this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
+        this.hydrateDailyEod(this.data.dailyEod);
         this.preview = true;
         this.ready = true;
         this.loading = false;
@@ -206,7 +230,8 @@ export function registerWorkspace(Alpine) {
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
         this.ready = true;
-        await this.refreshDashboard();
+         await this.refreshDashboard();
+         await this.refreshDailyEod();
         if (access.role === "admin") await this.refreshUsers();
       } catch (reason) {
         this.error = readableError(reason, "Unable to open the AOI workspace.");
@@ -248,6 +273,21 @@ export function registerWorkspace(Alpine) {
     get focusTasks() { return this.data.tasks.filter((task) => ["submitted", "revision_requested", "blocked"].includes(task.status)).slice(0, 3); },
     get activeUsers() { return this.users.filter((user) => user.membership_status === "active"); },
     get interns() { return this.activeUsers.filter((user) => user.role === "intern"); },
+    get dailyEod() { return this.data.dailyEod || {}; },
+    get dailyEodMembers() { return this.dailyEod.members || []; },
+    get dailyEodUserId() { return this.preview ? (this.expectedRole === "admin" ? "preview-admin" : "m1") : this.access?.userId; },
+    get dailyEodLocked() { return this.dailyEodForm.workflowStatus === "completed"; },
+    get dailyEodAttention() { return dailyEodAttentionCount(this.dailyEod, this.access?.role, this.dailyEodUserId); },
+    get filteredDailyEodTeam() { return filterDailyEodTeam(this.dailyEod.teamToday || [], this.dailyEodTeamFilter); },
+    get dailyEodDueCopy() {
+      return {
+        due: this.t("eodDue"),
+        overdue: this.t("eodOverdue"),
+        submitted: this.t("eodSubmitted"),
+        completed: this.t("eodCompleted"),
+        not_required: this.t("eodNotRequired"),
+      }[this.dailyEod.dueState] || this.t("eodDue");
+    },
     get commandPages() {
       const value = this.query.trim().toLowerCase();
       return this.navigation.filter((item) => !value || item.label.toLowerCase().includes(value));
@@ -328,6 +368,7 @@ export function registerWorkspace(Alpine) {
       view = { research: "collect", pmf: "analyze" }[view] || view;
       if (view === "admin" && this.access?.role !== "admin") return;
       this.view = view;
+      if (view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -651,6 +692,243 @@ export function registerWorkspace(Alpine) {
       this.bonusXp += reward;
       this.showToast(this.t("actionDone"), `${this.t("actionDoneCopy")} +${reward} XP`);
     },
+    hydrateDailyEod(snapshot = {}) {
+      this.data.dailyEod = snapshot || {};
+      const manager = (snapshot?.members || []).find((member) => member.role === "admin");
+      const defaults = {
+        engagementManagerId: manager?.userId || "",
+        personInChargeId: this.dailyEodUserId || "",
+      };
+      this.dailyEodForm = createDailyEodDraft(snapshot?.myBrief || defaults);
+    },
+    toggleDailyEodOwner(owner, target = "own") {
+      const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
+      form.executiveOwners = toggleExecutiveOwner(form.executiveOwners, owner);
+    },
+    addDailyEodEvidence(target = "own") {
+      const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
+      form.evidenceLinks.push({ sourceType: "onedrive", label: "", url: "" });
+    },
+    removeDailyEodEvidence(index, target = "own") {
+      const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
+      if (form.evidenceLinks.length === 1) {
+        form.evidenceLinks.splice(0, 1, { sourceType: "onedrive", label: "", url: "" });
+        return;
+      }
+      form.evidenceLinks.splice(index, 1);
+    },
+    async saveDailyEod(workflowStatus) {
+      const payload = { ...this.dailyEodForm, workflowStatus };
+      if (workflowStatus === "submitted") {
+        const errors = validateDailyEodBrief(payload);
+        if (errors.length) {
+          this.dailyEodNotice = { tone: "error", text: errors.join(" ") };
+          return;
+        }
+      }
+      this.savingDailyEod = true;
+      this.dailyEodNotice = null;
+      try {
+        if (this.preview) {
+          const now = new Date().toISOString();
+          const memberName = (id) => this.dailyEodMembers.find((member) => member.userId === id)?.displayName || "";
+          const saved = {
+            ...payload,
+            id: payload.id || `eod-preview-${Date.now()}`,
+            briefDate: this.dailyEod.serverDate,
+            authorId: this.dailyEodUserId,
+            authorName: this.access.displayName,
+            authorRole: this.access.role,
+            engagementManagerName: memberName(payload.engagementManagerId),
+            personInChargeName: memberName(payload.personInChargeId),
+            submittedAt: workflowStatus === "submitted" ? (payload.submittedAt || now) : payload.submittedAt,
+            isLate: this.dailyEod.dueState === "overdue",
+            updatedAt: now,
+          };
+          this.data.dailyEod = {
+            ...this.dailyEod,
+            myBrief: saved,
+            dueState: workflowStatus === "submitted" ? "submitted" : this.dailyEod.dueState,
+            teamToday: (this.dailyEod.teamToday || []).map((member) => member.userId === this.dailyEodUserId ? { ...member, briefId: saved.id, brief: saved, workflowStatus } : member),
+          };
+          this.upsertPreviewDailyEod(saved);
+          this.dailyEodForm = createDailyEodDraft(saved);
+        } else {
+          const saved = await saveDailyEodBrief(payload, this.dailyEodForm.updatedAt);
+          this.hydrateDailyEod({ ...this.dailyEod, myBrief: saved, dueState: saved.workflowStatus });
+          await this.refreshDailyEod();
+          await this.searchDailyEodReports(1);
+        }
+        this.dailyEodNotice = { tone: "success", text: workflowStatus === "submitted" ? "EOD brief submitted for administrator check." : "Draft saved. Your daily requirement is complete only after submission." };
+      } catch (reason) {
+        this.dailyEodNotice = { tone: "error", text: readableError(reason, "Unable to save the EOD brief.") };
+      } finally {
+        this.savingDailyEod = false;
+      }
+    },
+    openDailyEodRecord(record) {
+      if (!record) return;
+      this.dailyEodReturnFocus = document.activeElement;
+      this.selectedDailyEod = record;
+      this.dailyEodAdminForm = createDailyEodDraft(record);
+      this.dailyEodAdminReason = "";
+      this.dailyEodAdminNotice = null;
+      this.$nextTick(() => {
+        const drawer = document.querySelector(".eod-record-drawer");
+        const title = drawer?.querySelector(".drawer-title h2");
+        const close = drawer?.querySelector(".drawer-header .icon-button");
+        const notice = document.querySelector(".eod-drawer-notice");
+        if (drawer && notice && notice.parentElement !== drawer) drawer.prepend(notice);
+        if (drawer && title) {
+          title.id = "eod-record-title";
+          drawer.setAttribute("aria-labelledby", title.id);
+        }
+        const previousMetadata = drawer?.querySelector(".eod-record-metadata");
+        previousMetadata?.remove();
+        const metadata = document.createElement("div");
+        metadata.className = "eod-record-metadata";
+        const timestamp = (value) => formatDailyEodTimestamp(value, this.locale, this.dailyEod.timezone || "UTC");
+        metadata.textContent = [
+          record.projectCode && `${record.projectCode}${record.projectName ? `, ${record.projectName}` : ""}`,
+          record.submittedAt && `Submitted ${timestamp(record.submittedAt)}${record.isLate ? " (late)" : ""}`,
+          record.completedAt && `Completed by ${record.completedByName || "administrator"} ${timestamp(record.completedAt)}`,
+          record.lastEditedByName && `Last edited by ${record.lastEditedByName}${record.lastEditReason ? `: ${record.lastEditReason}` : ""}`,
+        ].filter(Boolean).join(" · ") || "Draft record.";
+        drawer?.querySelector(".drawer-title")?.after(metadata);
+        const form = drawer?.querySelector(".eod-drawer-form");
+        const existingLinks = form?.querySelector(".eod-linked-evidence");
+        existingLinks?.remove();
+        const evidenceLinks = (record.evidenceLinks || []).filter((link) => {
+          try {
+            return ["http:", "https:"].includes(new URL(link.url).protocol);
+          } catch {
+            return false;
+          }
+        });
+        if (form && evidenceLinks.length) {
+          const section = document.createElement("section");
+          section.className = "eod-linked-evidence";
+          const heading = document.createElement("span");
+          heading.className = "section-kicker";
+          heading.textContent = "Open evidence";
+          section.append(heading);
+          for (const link of evidenceLinks) {
+            const anchor = document.createElement("a");
+            anchor.href = link.url;
+            anchor.target = "_blank";
+            anchor.rel = "noopener noreferrer";
+            anchor.textContent = `${String(link.sourceType || "evidence").replaceAll("_", " ")} · ${link.label}`;
+            section.append(anchor);
+          }
+          form.append(section);
+        }
+        close?.setAttribute("aria-label", "Close EOD record");
+        close?.focus();
+      });
+    },
+    closeDailyEodRecord() {
+      this.selectedDailyEod = null;
+      this.dailyEodAdminReason = "";
+      this.dailyEodAdminNotice = null;
+      this.$nextTick(() => this.dailyEodReturnFocus?.focus?.());
+    },
+    trapDailyEodFocus(event) {
+      const drawer = document.querySelector(".eod-record-drawer");
+      if (!drawer) return;
+      const controls = [...drawer.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((element) => element.offsetParent !== null);
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    upsertPreviewDailyEod(record) {
+      const items = this.data.dailyEodReportItems || [];
+      this.data.dailyEodReportItems = items.some((item) => item.id === record.id)
+        ? items.map((item) => item.id === record.id ? { ...item, ...record } : item)
+        : [record, ...items];
+    },
+    async adminCompleteDailyEod(action = "complete") {
+      if (this.access?.role !== "admin" || !this.selectedDailyEod) return;
+      if (this.dailyEodAdminReason.trim().length < 3) {
+        this.dailyEodAdminNotice = { tone: "error", text: "Add an edit or completion reason with at least three characters." };
+        return;
+      }
+      const payload = { ...this.dailyEodAdminForm };
+      if (["submitted", "completed"].includes(this.selectedDailyEod.workflowStatus) || action === "complete") {
+        const errors = validateDailyEodBrief(payload);
+        if (errors.length) {
+          this.dailyEodAdminNotice = { tone: "error", text: errors.join(" ") };
+          return;
+        }
+      }
+      this.savingDailyEodAdmin = true;
+      this.dailyEodAdminNotice = null;
+      try {
+        let saved;
+        if (this.preview) {
+          const now = new Date().toISOString();
+          saved = { ...payload, workflowStatus: action === "complete" ? "completed" : this.selectedDailyEod.workflowStatus, completedByName: action === "complete" ? this.access.displayName : this.selectedDailyEod.completedByName, completedAt: action === "complete" ? now : this.selectedDailyEod.completedAt, lastEditedByName: this.access.displayName, lastEditReason: this.dailyEodAdminReason.trim(), updatedAt: now };
+          this.data.dailyEod.teamToday = (this.dailyEod.teamToday || []).map((member) => member.briefId === saved.id ? { ...member, brief: saved, workflowStatus: saved.workflowStatus, updatedAt: saved.updatedAt } : member);
+          this.dailyEodReports.items = this.dailyEodReports.items.map((item) => item.id === saved.id ? saved : item);
+          this.upsertPreviewDailyEod(saved);
+        } else {
+          saved = await adminUpdateDailyEodBrief(this.selectedDailyEod.id, payload, this.dailyEodAdminReason, this.selectedDailyEod.updatedAt, action);
+          await this.refreshDailyEod();
+          await this.searchDailyEodReports(this.dailyEodReports.page);
+          const refreshed = this.dailyEodReports.items.find((item) => item.id === saved.id);
+          saved = { ...saved, auditHistory: refreshed?.auditHistory || this.selectedDailyEod.auditHistory || [] };
+        }
+        this.openDailyEodRecord(saved);
+        this.dailyEodAdminNotice = { tone: "success", text: action === "complete" ? "EOD brief marked complete." : "Administrator edit saved with an audit reason." };
+      } catch (reason) {
+        this.dailyEodAdminNotice = { tone: "error", text: readableError(reason, "Unable to update the EOD brief.") };
+      } finally {
+        this.savingDailyEodAdmin = false;
+      }
+    },
+    async searchDailyEodReports(page = 1) {
+      this.loadingDailyEodReports = true;
+      this.dailyEodReportError = "";
+      try {
+        if (this.preview) {
+          const filters = this.dailyEodReportFilters;
+          const query = filters.search.trim().toLowerCase();
+          let items = (this.data.dailyEodReportItems || []).filter((item) => {
+            const matchesSearch = !query || [item.authorName, item.engagementManagerName, item.personInChargeName].some((value) => String(value || "").toLowerCase().includes(query));
+            return matchesSearch
+              && (!filters.fromDate || item.briefDate >= filters.fromDate)
+              && (!filters.toDate || item.briefDate <= filters.toDate)
+              && (!filters.authorRole || item.authorRole === filters.authorRole)
+              && (!filters.projectStatus || item.projectStatus === filters.projectStatus)
+              && (!filters.workflowStatus || item.workflowStatus === filters.workflowStatus);
+          });
+          if (this.access?.role !== "admin") items = items.filter((item) => item.authorId === this.dailyEodUserId);
+          this.dailyEodReports = { items, total: items.length, page: 1, pageSize: 25 };
+        } else {
+          this.dailyEodReports = await loadDailyEodReports(this.dailyEodReportFilters, page, 25);
+        }
+        this.dailyEodReportsLoaded = true;
+      } catch (reason) {
+        this.dailyEodReportError = readableError(reason, "Unable to load EOD reports.");
+      } finally {
+        this.loadingDailyEodReports = false;
+      }
+    },
+    async refreshDailyEod() {
+      this.dailyEodError = "";
+      try {
+        const snapshot = await loadDailyEod();
+        this.hydrateDailyEod(snapshot);
+      } catch (reason) {
+        this.dailyEodError = readableError(reason, "The EOD brief is temporarily unavailable.");
+      }
+    },
      async refreshDashboard() {
       this.loading = true;
       this.error = "";
@@ -688,16 +966,19 @@ export function registerWorkspace(Alpine) {
       }
     },
     usePreview() {
-      this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, this.access?.displayName);
+      const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
+      this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
       this.preview = true;
+      this.hydrateDailyEod(this.data.dailyEod);
+      this.dailyEodReportsLoaded = false;
       this.error = "";
     },
     loadPreviewUsers() {
-      this.users = fallbackDashboard.team.map((member, index) => ({
-        user_id: member.id,
+      this.users = fallbackDashboard.dailyEod.members.map((member, index) => ({
+        user_id: member.userId,
         display_name: member.displayName,
         login_identifier: `preview${index + 1}@aoi.example`,
-        role: "intern",
+        role: member.role,
         membership_status: "active",
         joined_at: fallbackDashboard.generatedAt,
       }));

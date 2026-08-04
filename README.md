@@ -54,6 +54,14 @@ Contacts and their complete activity trails are visible only to the assigned own
 
 Apply all files in `supabase/migrations/` in order. The CRM uses assignment-scoped RLS, authenticated RPCs, and the final access-hardening migration.
 
+## Daily EOD Briefs
+
+Every active administrator and intern has a required end-of-day brief Monday through Friday, due at 5:00 PM in the organization timezone. The brief captures outcomes, evidence, deliverables, insights, blockers, executive support, three next-day priorities, project status, and labeled evidence links.
+
+Authors can save drafts and submit late when necessary. All administrators can review organization submissions, make reasoned audited edits, and mark submitted records complete. Intern report searches remain limited to their own history; administrators can search all briefs by person, role, date, status, and completion state. In-app reminders show due and overdue work without blocking the rest of the workspace.
+
+The persistence contract is in `supabase/migrations/20260804164524_daily_eod_briefs.sql`. Apply all migrations in order before deploying the static client.
+
 ## Local Setup
 
 ```bash

@@ -179,3 +179,61 @@ fallbackDashboard.crmActivity = fallbackDashboard.outreachEvents.map((event) => 
 }));
 
 fallbackDashboard.crmProgress = { xp: 460, completedToday: 2, streakDays: 6 };
+
+function previewEodRecord(values) {
+  return {
+    projectId: fallbackDashboard.project.id,
+    projectCode: fallbackDashboard.project.code,
+    projectName: fallbackDashboard.project.name,
+    engagementManagerId: "preview-admin",
+    engagementManagerName: "AOI Administrator",
+    personInChargeId: values.authorId,
+    personInChargeName: values.authorName,
+    movedOutcome: "Moved one defined research outcome into review.",
+    evidenceGathered: "Linked source notes and the updated evidence log.",
+    deliverablesCompleted: "Daily synthesis and owner handoff.",
+    keyInsight: "The next action is clearer when evidence and limitations travel together.",
+    currentBlocker: "None",
+    blockerImpact: "None",
+    proposedSolution: "None",
+    executiveOwners: ["None"],
+    executiveRequest: "None",
+    tomorrowPriorities: ["Close the highest-priority follow-up", "Update the evidence trail", "Prepare the next owner handoff"],
+    projectStatus: "on_track",
+    evidenceLinks: [{ sourceType: "evidence_log", label: "Daily evidence log", url: "https://example.com/aoi/evidence" }],
+    submittedAt: "2026-08-04T20:40:00.000Z",
+    isLate: false,
+    updatedAt: "2026-08-04T20:40:00.000Z",
+    auditHistory: [],
+    ...values,
+  };
+}
+
+fallbackDashboard.dailyEodReportItems = [
+  previewEodRecord({ id: "eod-kayla-0804", briefDate: "2026-08-04", authorId: "m1", authorName: "Kayla Tillmon", authorRole: "intern", workflowStatus: "submitted" }),
+  previewEodRecord({ id: "eod-wen-0804", briefDate: "2026-08-04", authorId: "m2", authorName: "Wen Tang", authorRole: "intern", workflowStatus: "completed", completedBy: "preview-admin", completedByName: "AOI Administrator", completedAt: "2026-08-04T20:55:00.000Z" }),
+  previewEodRecord({ id: "eod-admin-0804", briefDate: "2026-08-04", authorId: "preview-admin", authorName: "AOI Administrator", authorRole: "admin", workflowStatus: "draft", submittedAt: null, movedOutcome: "", evidenceGathered: "", deliverablesCompleted: "", keyInsight: "", currentBlocker: "", blockerImpact: "", proposedSolution: "", executiveOwners: [], executiveRequest: "", evidenceLinks: [{ sourceType: "onedrive", label: "", url: "" }] }),
+  previewEodRecord({ id: "eod-admin-0803", briefDate: "2026-08-03", authorId: "preview-admin", authorName: "AOI Administrator", authorRole: "admin", workflowStatus: "completed", completedBy: "preview-admin", completedByName: "AOI Administrator", completedAt: "2026-08-03T21:00:00.000Z" }),
+];
+
+fallbackDashboard.dailyEod = {
+  serverDate: "2026-08-04",
+  serverNow: "2026-08-04T20:45:00.000Z",
+  timezone: "America/New_York",
+  isWorkday: true,
+  dueAt: "2026-08-04T21:00:00.000Z",
+  dueState: "due",
+  myBrief: null,
+  members: [
+    { userId: "preview-admin", displayName: "AOI Administrator", role: "admin" },
+    { userId: "m1", displayName: "Kayla Tillmon", role: "intern" },
+    { userId: "m2", displayName: "Wen Tang", role: "intern" },
+    { userId: "m3", displayName: "Mike Revou Moses", role: "intern" },
+  ],
+  teamToday: [
+    { userId: "preview-admin", displayName: "AOI Administrator", role: "admin", briefId: "eod-admin-0804", workflowStatus: "draft", brief: fallbackDashboard.dailyEodReportItems[2], submittedAt: null, isLate: false, projectStatus: null, updatedAt: "2026-08-04T20:10:00.000Z" },
+    { userId: "m1", displayName: "Kayla Tillmon", role: "intern", briefId: "eod-kayla-0804", workflowStatus: "submitted", brief: fallbackDashboard.dailyEodReportItems[0], submittedAt: "2026-08-04T20:40:00.000Z", isLate: false, projectStatus: "on_track", updatedAt: "2026-08-04T20:40:00.000Z" },
+    { userId: "m2", displayName: "Wen Tang", role: "intern", briefId: "eod-wen-0804", workflowStatus: "completed", brief: fallbackDashboard.dailyEodReportItems[1], submittedAt: "2026-08-04T20:35:00.000Z", isLate: false, projectStatus: "on_track", updatedAt: "2026-08-04T20:55:00.000Z" },
+    { userId: "m3", displayName: "Mike Revou Moses", role: "intern", briefId: null, workflowStatus: "missing", brief: null, submittedAt: null, isLate: false, projectStatus: null, updatedAt: null },
+  ],
+};
