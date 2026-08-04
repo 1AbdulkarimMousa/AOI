@@ -1,0 +1,4 @@
+# Edge Functions validate the caller JWT inside the function so this remains
+# compatible with Supabase's current signing-key model.
+[functions.admin-create-user]
+verify_jwt = false

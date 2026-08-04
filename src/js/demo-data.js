@@ -1,0 +1,61 @@
+export const fallbackDashboard = {
+  organization: {
+    id: "demo-org",
+    name: "HUGE DENTAL USA LLC / AOI Technologics",
+    slug: "aoi-technologics",
+  },
+  project: {
+    id: "demo-project",
+    code: "AOI-PMF-01",
+    name: "Ambiloop U.S. PMF Validation",
+    description: "Bilingual research operations, evidence traceability, and GTM validation.",
+    currentWeek: 4,
+    startDate: "2026-07-13",
+    endDate: "2026-09-25",
+  },
+  metrics: [
+    { key: "weekly_plan", label: "Weekly plan", value: 72, target: 100, unit: "percent", delta: 8 },
+    { key: "evidence_records", label: "Evidence records", value: 168, target: 200, unit: "number", delta: 24 },
+    { key: "pending_reviews", label: "Pending reviews", value: 3, target: 0, unit: "number", delta: 1 },
+    { key: "active_blockers", label: "Active blockers", value: 2, target: 0, unit: "number", delta: -1 },
+  ],
+  tasks: [
+    { id: "t1", title: "Synthesize pediatric dentist interviews", objective: "Convert eight conversations into traceable Need Truth evidence.", status: "in_progress", priority: "high", ownerName: "Kayla Tillmon", ownerInitials: "KT", dueDate: "2026-08-04", pmfLayer: "Need Truth", progress: 68, points: 180 },
+    { id: "t2", title: "Review recruitment message v3", objective: "Approve language before the next clinician outreach wave.", status: "submitted", priority: "critical", ownerName: "Ethan", ownerInitials: "ET", dueDate: "2026-08-03", pmfLayer: "Need Truth", progress: 100, points: 120 },
+    { id: "t3", title: "Log orthodontic solution-gap evidence", objective: "Add supporting and contradictory quotes with strength scores.", status: "revision_requested", priority: "high", ownerName: "Wen Tang", ownerInitials: "WT", dueDate: "2026-08-03", pmfLayer: "Solution Gap", progress: 54, points: 160 },
+    { id: "t4", title: "Schedule implant-maintenance interviews", objective: "Book the remaining two qualified periodontists.", status: "blocked", priority: "medium", ownerName: "Mike Revou Moses", ownerInitials: "MR", dueDate: "2026-08-05", pmfLayer: "Need Truth", progress: 40, points: 140 },
+    { id: "t5", title: "Prepare Week 4 evidence review", objective: "Summarize learning, limitations, and the recommended next action.", status: "assigned", priority: "high", ownerName: "Zhen", ownerInitials: "ZH", dueDate: "2026-08-06", pmfLayer: "Product Value", progress: 12, points: 220 },
+    { id: "t6", title: "Validate concept-test survey logic", objective: "Check segment quotas, Gabor-Granger branching, and consent.", status: "approved", priority: "medium", ownerName: "Administrator", ownerInitials: "AD", dueDate: "2026-08-02", pmfLayer: "Value Exchange", progress: 100, points: 200 },
+  ],
+  samplePlan: [
+    { id: "s1", label: "Dental professionals", pmfLayer: "Need Truth", actual: 19, target: 35, accent: "orange" },
+    { id: "s2", label: "Consumer interviews", pmfLayer: "Need Truth", actual: 24, target: 40, accent: "teal" },
+    { id: "s3", label: "Concept-test responses", pmfLayer: "Product Value", actual: 86, target: 200, accent: "blue" },
+    { id: "s4", label: "Product test users", pmfLayer: "Repeatability", actual: 8, target: 32, accent: "purple" },
+  ],
+  pmfLayers: [
+    { id: "p1", code: "H1", name: "Need Truth", sequence: 1, confidence: 78, status: "provisional", evidenceCount: 54, counterevidenceCount: 8, nextAction: "Close the pediatric dentist evidence gap" },
+    { id: "p2", code: "H2", name: "Current Solution Gap", sequence: 2, confidence: 64, status: "partial", evidenceCount: 41, counterevidenceCount: 12, nextAction: "Verify switching readiness by segment" },
+    { id: "p3", code: "H3", name: "Product Value", sequence: 3, confidence: 46, status: "not_validated", evidenceCount: 28, counterevidenceCount: 7, nextAction: "Complete the concept-test sample" },
+    { id: "p4", code: "H4", name: "Repeatability", sequence: 4, confidence: 22, status: "not_validated", evidenceCount: 11, counterevidenceCount: 4, nextAction: "Begin four-week home-use cohort" },
+    { id: "p5", code: "H5", name: "Value Exchange", sequence: 5, confidence: 18, status: "not_validated", evidenceCount: 7, counterevidenceCount: 3, nextAction: "Launch price and commitment test" },
+  ],
+  activity: [
+    { id: "a1", actorName: "Ethan", actorInitials: "ET", action: "submitted", subject: "Recruitment message v3", eventType: "review", occurredAt: "2026-08-03T18:42:00.000Z" },
+    { id: "a2", actorName: "Kayla Tillmon", actorInitials: "KT", action: "logged 6 evidence records", subject: "Pediatric dentist interviews", eventType: "evidence", occurredAt: "2026-08-03T18:00:00.000Z" },
+    { id: "a3", actorName: "Wen Tang", actorInitials: "WT", action: "received revision feedback", subject: "Orthodontic solution-gap evidence", eventType: "revision", occurredAt: "2026-08-03T16:00:00.000Z" },
+    { id: "a4", actorName: "Mike Revou Moses", actorInitials: "MR", action: "flagged a blocker", subject: "Implant-maintenance recruitment", eventType: "blocked", occurredAt: "2026-08-03T14:00:00.000Z" },
+  ],
+  signals: [
+    { id: "r1", theme: "Caregiver visibility between visits", stance: "supporting", evidenceCount: 31, changePercent: 18, strength: 3.4 },
+    { id: "r2", theme: "Image-comparison confidence", stance: "supporting", evidenceCount: 24, changePercent: 12, strength: 3.1 },
+    { id: "r3", theme: "Actionability without clinician context", stance: "contradicting", evidenceCount: 14, changePercent: 7, strength: 2.8 },
+    { id: "r4", theme: "Routine-fit friction", stance: "contradicting", evidenceCount: 9, changePercent: 3, strength: 2.4 },
+  ],
+  team: [
+    { id: "m1", displayName: "Kayla Tillmon", initials: "KT", roleLabel: "Research Intern", points: 1480, weeklyPoints: 340, streakDays: 6, completedTasks: 12, rank: 1 },
+    { id: "m2", displayName: "Wen Tang", initials: "WT", roleLabel: "Research Intern", points: 1320, weeklyPoints: 280, streakDays: 4, completedTasks: 11, rank: 2 },
+    { id: "m3", displayName: "Mike Revou Moses", initials: "MR", roleLabel: "Doctor BD Support", points: 1180, weeklyPoints: 220, streakDays: 3, completedTasks: 9, rank: 3 },
+  ],
+  generatedAt: "2026-08-03T19:00:00.000Z",
+};

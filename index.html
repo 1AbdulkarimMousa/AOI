@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AOI Ambiloop Ops turns accountable research work and traceable evidence into confident PMF decisions." />
+    <meta property="og:title" content="Ambiloop Ops" />
+    <meta property="og:description" content="From work queue to evidence trail to PMF decision." />
+    <meta property="og:image" content="./og-landing-v2.png" />
+    <title>Ambiloop Ops | Evidence to PMF Decisions</title>
+  </head>
+  <body data-page="landing">
+    <div class="landing-shell" x-data="landingPage" x-init="init()" x-cloak>
+      <header class="landing-nav">
+        <a href="./index.html" class="landing-brand" aria-label="Ambiloop Ops home"><span><i data-lucide="sparkles"></i></span><strong>Ambiloop Ops</strong></a>
+        <nav :class="mobileOpen && 'open'" aria-label="Landing navigation">
+          <a href="#product" @click="mobileOpen=false" x-text="c.navProduct"></a>
+          <a href="#method" @click="mobileOpen=false" x-text="c.navMethod"></a>
+          <a href="#security" @click="mobileOpen=false" x-text="c.navSecurity"></a>
+          <button class="landing-language" @click="toggleLocale()"><span>◎</span><span x-text="locale==='en'?'中文':'EN'"></span></button>
+          <a href="./login.html" class="landing-login" x-text="c.login"></a>
+          <a href="./login.html" class="landing-cta-small"><span x-text="c.openWorkspace"></span> →</a>
+        </nav>
+        <button class="landing-menu" @click="mobileOpen=!mobileOpen" :aria-label="mobileOpen?'Close navigation':'Open navigation'" x-text="mobileOpen?'×':'☰'"></button>
+      </header>
+
+      <main>
+        <section class="landing-hero">
+          <div class="landing-hero-copy">
+            <span class="landing-eyebrow"><span>✦</span><span x-text="c.eyebrow"></span></span>
+            <h1><span x-text="c.headlineA"></span> <em x-text="c.headlineB"></em></h1>
+            <p x-text="c.subhead"></p>
+            <div class="landing-hero-actions"><a href="./login.html" class="landing-primary-button"><span x-text="c.primaryCta"></span> →</a><a href="#product" class="landing-secondary-button"><span x-text="c.secondaryCta"></span> ›</a></div>
+            <div class="landing-proof"><span x-text="c.trusted"></span><div><strong>5</strong> PMF layers</div><div><strong>1</strong> evidence trail</div><div><strong>2</strong> languages</div></div>
+          </div>
+          <div class="landing-product-stage" aria-label="Ambiloop Ops product preview">
+            <div class="preview-glow"></div><div class="preview-window"><div class="preview-topbar"><div class="preview-brand-mark">A</div><span>Ambiloop Ops</span><div class="preview-search"></div><i></i><i></i></div><div class="preview-body"><aside><b></b><b></b><b></b><b></b><b></b></aside><div class="preview-main"><div class="preview-heading"><span>Research pulse</span><em><i></i> Live · synced</em></div><div class="preview-hero-card"><small>AOI-PMF-01 · WEEK 4</small><strong>Evidence is moving. Decisions are getting clearer.</strong><div><span></span><span></span></div></div><div class="preview-metrics"><article><b>72%</b><span>Weekly plan</span></article><article><b>168</b><span>Evidence</span></article><article><b>3</b><span>Reviews</span></article><article><b>2</b><span>Blockers</span></article></div><div class="preview-focus"><div><span>Focus today</span><em>3 / 5 complete</em></div><article><i>1</i><span>Review recruitment message<small>Review</small></span><b>100%</b></article><article><i>2</i><span>Synthesize interviews<small>Evidence</small></span><b>68%</b></article><article><i>3</i><span>Resolve outreach blocker<small>Recruitment</small></span><b>40%</b></article></div></div></div></div>
+            <div class="floating-signal"><span>↗</span><div><small>Research momentum</small><strong>+24 verified signals</strong></div></div><div class="floating-gate"><span>✓</span><div><small>H1 · Need Truth</small><strong>78% confidence</strong></div></div>
+          </div>
+        </section>
+
+        <section class="landing-feature-section" id="product"><div class="landing-section-heading"><span class="landing-eyebrow" x-text="c.sectionEyebrow"></span><h2 x-text="c.sectionHeadline"></h2><p x-text="c.sectionCopy"></p></div><div class="landing-feature-grid"><article><span class="feature-number">01</span><div class="feature-icon icon-orange">✓</div><h3 x-text="c.featureOne"></h3><p x-text="c.featureOneCopy"></p><div class="mini-work-queue"><span>✓ Interview synthesis</span><span>✓ Evidence links</span><span>○ Limitations review</span></div></article><article class="feature-dark"><span class="feature-number">02</span><div class="feature-icon">E</div><h3 x-text="c.featureTwo"></h3><p x-text="c.featureTwoCopy"></p><div class="mini-evidence"><span>✓ 54 supporting</span><span>! 8 contradicting</span><b><i style="width:78%"></i></b></div></article><article><span class="feature-number">03</span><div class="feature-icon icon-teal">G</div><h3 x-text="c.featureThree"></h3><p x-text="c.featureThreeCopy"></p><div class="mini-gates"><span><i>1</i><b><em style="width:78%"></em></b><strong>78%</strong></span><span><i>2</i><b><em style="width:64%"></em></b><strong>64%</strong></span><span><i>3</i><b><em style="width:46%"></em></b><strong>46%</strong></span></div></article></div></section>
+        <section class="landing-method" id="method"><div class="landing-section-heading light"><span class="landing-eyebrow" x-text="c.workflowEyebrow"></span><h2 x-text="c.workflowHeadline"></h2></div><div class="method-grid"><article><span>01</span><div><b>◎</b><h3>Plan</h3><p>Set the weekly question, evidence standard, owners, and milestones.</p></div></article><article><span>02</span><div><b>↗</b><h3>Collect</h3><p>Recruit respondents and log sources, interviews, product events, and counterevidence.</p></div></article><article><span>03</span><div><b>✓</b><h3>Decide</h3><p>Review the evidence balance, record limitations, and prepare an immutable Gate snapshot.</p></div></article></div></section>
+        <section class="landing-security" id="security"><div class="security-visual"><div class="security-ring">✓<span></span><span></span></div><article><small>Access control</small><strong>Admin</strong><strong>Intern</strong><b><i style="width:92%"></i></b></article></div><div><span class="landing-eyebrow" x-text="c.securityEyebrow"></span><h2 x-text="c.securityHeadline"></h2><p x-text="c.securityCopy"></p><ul><li>✓ Server-verified administrator actions</li><li>✓ Tenant-scoped database rules</li><li>✓ Restricted identifiers and exports</li></ul></div></section>
+        <section class="landing-final-cta"><div><span class="landing-eyebrow">✦ AOI · Ambiloop</span><h2 x-text="c.finalHeadline"></h2><p x-text="c.finalCopy"></p><a href="./login.html" class="landing-primary-button"><span x-text="c.finalCta"></span> →</a></div><div class="cta-orbit"><span></span><span></span><span></span><b>◎</b></div></section>
+      </main>
+      <footer class="landing-footer"><span>Ambiloop Ops · AOI Technologics</span><span>Internal research system · Not medical advice</span></footer>
+    </div>
+    <script type="module" src="/src/js/app.js"></script>
+  </body>
+</html>
