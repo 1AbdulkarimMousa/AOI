@@ -72,4 +72,9 @@ test("enforces review, consent, import, and private-media boundaries", async () 
   assert.match(sql, /function private\.sync_aoi_consent_status\(\)[\s\S]*security definer set search_path = ''/i);
   assert.match(sql, /drop function if exists public\.sync_aoi_consent_status\(\)/i);
   assert.match(sql, /grant select, insert on public\.organization_memberships to service_role/i);
+  assert.match(sql, /rpc_aoi_append_consent_version/i);
+  assert.match(sql, /OBSERVATION_PROVENANCE_REQUIRED/);
+  assert.match(sql, /observation\.workflow_status = 'approved'/);
+  assert.match(sql, /revoke insert on public\.gate_snapshots from authenticated/);
+  assert.match(sql, /private\.assign_aoi_consent_version/);
 });

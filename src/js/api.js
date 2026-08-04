@@ -89,6 +89,15 @@ export async function saveResearchRecord(recordType, payload) {
   return data;
 }
 
+export async function appendConsentVersion(respondentId, payload) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_append_consent_version", {
+    p_respondent_id: respondentId,
+    p_payload: payload,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function reviewResearchRecord(recordType, recordId, action, notes = "") {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_review_research_record", {
     p_record_type: recordType,

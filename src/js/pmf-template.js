@@ -112,6 +112,14 @@ export const pmfCollectionTemplate = String.raw`
       <label><span>File class</span><select x-model="attachmentForm.bucketId"><option value="aoi-sources">Research source</option><option value="aoi-consent">Consent document</option><option value="aoi-recordings">Recording</option><option value="aoi-oral-images">Oral image</option></select></label>
       <label class="upload-control"><span>Choose file</span><input type="file" :disabled="uploadingAttachment" @change="uploadAttachment($event)"><small>Recordings and oral images require an active matching consent version.</small></label>
     </div>
+    <div class="consent-version-form">
+      <div><span class="eyebrow">Append-only consent</span><strong>Record a new version when permission changes.</strong><small>A withdrawal immediately restricts active recordings and oral images.</small></div>
+      <label><span>Respondent</span><select x-model="consentForm.respondentId"><option value="">Choose respondent</option><template x-for="item in researchRespondents" :key="item.id"><option :value="item.id" x-text="item.externalId+' · '+item.consentStatus"></option></template></select></label>
+      <label><span>New status</span><select x-model="consentForm.status"><option value="granted">Granted</option><option value="pending">Pending</option><option value="declined">Declined</option><option value="withdrawn">Withdrawn</option><option value="expired">Expired</option></select></label>
+      <fieldset class="permission-grid"><legend>Current permissions</legend><label><input type="checkbox" x-model="consentForm.interviewAllowed"> Interview</label><label><input type="checkbox" x-model="consentForm.recordingAllowed"> Recording</label><label><input type="checkbox" x-model="consentForm.imagesAllowed"> Oral images</label><label><input type="checkbox" x-model="consentForm.quotationAllowed"> Quotation</label><label><input type="checkbox" x-model="consentForm.recontactAllowed"> Recontact</label></fieldset>
+      <label x-show="consentForm.status==='withdrawn'"><span>Withdrawal reason</span><input x-model.trim="consentForm.withdrawalReason"></label>
+      <button class="button button-secondary" @click="saveConsentVersion()">Record consent version</button>
+    </div>
   </section>
 </div>`;
 
@@ -119,7 +127,7 @@ export const pmfAnalysisTemplate = String.raw`
 <div x-show="view==='analyze'" class="pmf-surface">
   <section class="page-intro analysis-intro"><div><span class="eyebrow">PMF analysis</span><h1>Compare approved signals, then decide.</h1><p>Drafts and submitted records remain outside the matrix until an administrator approves them.</p></div><div class="analysis-proof"><span>Approved-only aggregation</span><strong>5 layers · explainable rules</strong></div></section>
 
-  <div class="layer-tabs" role="tablist" aria-label="PMF layer"><template x-for="layer in data.pmfLayers" :key="layer.code"><button role="tab" :aria-selected="matrixLayer===layer.code" :class="matrixLayer===layer.code && 'active'" @click="matrixLayer=layer.code"><span x-text="layer.code"></span><strong x-text="layer.name"></strong><small x-text="layer.confidence+'% readiness'"></small></button></template></div>
+  <div class="layer-tabs" role="tablist" aria-label="PMF layer"><template x-for="layer in data.pmfLayers" :key="layer.code"><button role="tab" :aria-selected="matrixLayer===layer.code" :class="matrixLayer===layer.code && 'active'" @click="matrixLayer=layer.code"><span x-text="layer.code"></span><strong x-text="layer.name"></strong><small x-text="data.evidence.filter(item=>item.pmfLayer===layer.code&&item.workflowStatus==='approved').length+' approved evidence'"></small></button></template></div>
 
   <section class="panel matrix-panel">
     <div class="panel-heading"><div><span class="eyebrow">Segment comparison matrix</span><h2 x-text="(data.pmfLayers.find(item=>item.code===matrixLayer)?.name||matrixLayer)+' evidence readout'"></h2></div><span class="matrix-count" x-text="activeMatrixRows.length+(activeMatrixRows.length===1?' metric':' metrics')"></span></div>

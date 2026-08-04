@@ -1,5 +1,6 @@
 import {
   addEvidence,
+  appendConsentVersion,
   createAdminTask,
   createAdminUser,
   createGateSnapshot,
@@ -144,6 +145,7 @@ export function registerWorkspace(Alpine) {
       gateForm: { pmfLayer: "H1", decision: "insufficient", rationale: "" },
       gateNotice: null,
       attachmentForm: { respondentId: "", sessionId: "", bucketId: "aoi-sources" },
+      consentForm: { respondentId: "", status: "granted", interviewAllowed: true, recordingAllowed: false, imagesAllowed: false, quotationAllowed: false, recontactAllowed: false, withdrawalReason: "" },
       uploadingAttachment: false,
      candidateForm: { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" },
      outreachForm: { channel: "Email", kind: "Initial", status: "Drafted", summary: "" },
@@ -223,7 +225,8 @@ export function registerWorkspace(Alpine) {
     progressTone(value) { return value >= 70 ? "teal" : value >= 40 ? "orange" : "muted"; },
     formatDate(value) {
       if (!value) return "No date";
-      return new Intl.DateTimeFormat(this.locale, { month: "short", day: "numeric" }).format(new Date(`${value}T12:00:00`));
+      const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
+      return Number.isNaN(parsed.getTime()) ? "Invalid date" : new Intl.DateTimeFormat(this.locale, { month: "short", day: "numeric" }).format(parsed);
     },
     relativeTime(value) {
       const minutes = Math.max(1, Math.round((new Date(this.data.generatedAt).getTime() - new Date(value).getTime()) / 60000));
@@ -384,15 +387,20 @@ export function registerWorkspace(Alpine) {
         return;
       }
       const reward = rewardForAction("enrich", completeness);
+      let awarded = reward;
       let saved = { ...this.crmForm, id: this.selectedCrmContact?.id || `crm-local-${Date.now()}`, candidateId: this.selectedCrmContact?.candidateId || null, completeness, priorityScore: this.selectedCrmContact?.priorityScore || 50, lastUpdated: today() };
       this.crmSaving = true;
       try {
-        if (!this.preview) saved = { ...saved, ...(await upsertCrmContact({ ...saved, createOutreach: true, rewardPoints: reward })) };
+        if (!this.preview) {
+          const persisted = await upsertCrmContact({ ...saved, createOutreach: true });
+          awarded = persisted.rewardPoints || 0;
+          saved = { ...saved, ...persisted };
+        }
         this.data.crmContacts = this.selectedCrmContact ? this.crmContacts.map((contact) => contact.id === saved.id ? { ...contact, ...saved, completeness } : contact) : [{ ...saved, completeness }, ...this.crmContacts];
-        this.data.crmProgress = { ...(this.data.crmProgress || {}), xp: (this.data.crmProgress?.xp || 0) + reward, completedToday: (this.data.crmProgress?.completedToday || 0) + 1 };
+        this.data.crmProgress = { ...(this.data.crmProgress || {}), xp: (this.data.crmProgress?.xp || 0) + awarded, completedToday: (this.data.crmProgress?.completedToday || 0) + (awarded > 0 ? 1 : 0) };
         this.selectedCrmContact = { ...saved, completeness };
         this.crmForm = { ...this.crmForm, ...saved };
-        this.crmNotice = { tone: "success", text: `Saved. +${reward} XP for verified enrichment.` };
+        this.crmNotice = { tone: "success", text: awarded ? `Saved. +${awarded} XP for verified enrichment.` : "Saved. Today's enrichment reward was already recorded." };
       } catch (reason) {
         this.crmNotice = { tone: "error", text: readableError(reason, "Unable to save the CRM contact.") };
       } finally {
@@ -406,16 +414,17 @@ export function registerWorkspace(Alpine) {
       }
       this.crmActionSaving = true;
       const reward = rewardForAction(this.crmActionForm.activityType, contactCompleteness(this.crmForm));
+      let awarded = reward;
       try {
-        if (!this.preview) await logCrmActivity(this.selectedCrmContact.id, { ...this.crmActionForm, rewardPoints: reward });
+        if (!this.preview) awarded = (await logCrmActivity(this.selectedCrmContact.id, this.crmActionForm)).rewardPoints || 0;
         const updated = { ...this.selectedCrmContact, nextAction: this.crmActionForm.nextAction || this.selectedCrmContact.nextAction, nextActionDue: this.crmActionForm.nextActionDue || this.selectedCrmContact.nextActionDue, lifecycle: this.crmActionForm.lifecycle || this.selectedCrmContact.lifecycle };
         this.data.crmContacts = this.crmContacts.map((contact) => contact.id === updated.id ? updated : contact);
         this.data.crmActivity = [{ id: `crm-activity-local-${Date.now()}`, contactId: updated.id, activityType: this.crmActionForm.activityType, summary: this.crmActionForm.summary, actorName: this.access?.displayName || "AOI", createdAt: new Date().toISOString() }, ...(this.data.crmActivity || [])];
-        this.data.crmProgress = { ...(this.data.crmProgress || {}), xp: (this.data.crmProgress?.xp || 0) + reward, completedToday: (this.data.crmProgress?.completedToday || 0) + 1 };
+        this.data.crmProgress = { ...(this.data.crmProgress || {}), xp: (this.data.crmProgress?.xp || 0) + awarded, completedToday: (this.data.crmProgress?.completedToday || 0) + (awarded > 0 ? 1 : 0) };
         this.selectedCrmContact = updated;
         this.crmForm = { ...this.crmForm, ...updated };
         this.crmActionForm = { ...this.crmActionForm, summary: "" };
-        this.crmActionNotice = { tone: "success", text: `Action logged. +${reward} XP.` };
+        this.crmActionNotice = { tone: "success", text: awarded ? `Action logged. +${awarded} XP.` : "Action logged. Today's reward for this action was already recorded." };
       } catch (reason) {
         this.crmActionNotice = { tone: "error", text: readableError(reason, "Unable to log the CRM action.") };
       } finally {
@@ -547,7 +556,7 @@ export function registerWorkspace(Alpine) {
           return;
         }
         await persistResearchRecord(recordType, payload);
-        this.researchForms = defaultResearchForms();
+        this.researchForms[recordType] = defaultResearchForms()[recordType];
         this.researchNotice = { tone: "success", text: `${recordType.replaceAll("_", " ")} ${workflowStatus === "submitted" ? "submitted for review" : "saved as a draft"}.` };
         await this.refreshDashboard();
       } catch (reason) {
@@ -585,6 +594,23 @@ export function registerWorkspace(Alpine) {
         await this.refreshDashboard();
       } catch (reason) {
         this.gateNotice = { tone: "error", text: readableError(reason, "Unable to create the Gate snapshot.") };
+      }
+    },
+    async saveConsentVersion() {
+      if (!this.consentForm.respondentId) {
+        this.researchNotice = { tone: "error", text: "Choose a respondent before recording consent." };
+        return;
+      }
+      try {
+        if (this.preview) {
+          this.researchNotice = { tone: "success", text: "Preview consent version validated. Live mode records it append-only." };
+          return;
+        }
+        const saved = await appendConsentVersion(this.consentForm.respondentId, this.consentForm);
+        this.researchNotice = { tone: "success", text: `Consent version ${saved.version} recorded as ${saved.status}.` };
+        await this.refreshDashboard();
+      } catch (reason) {
+        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to record the consent version.") };
       }
     },
     async uploadAttachment(event) {

@@ -50,7 +50,9 @@ The workspace includes a connected CRM layer for administrators and interns:
 - Append-only activity trail for enrichment, outreach, qualification, and follow-up
 - Personal XP, streaks, and badges without individual rankings
 
-Apply `supabase/migrations/20260804122136_crm_workspace.sql` and `supabase/migrations/20260804123948_crm_function_repairs.sql` after the existing migrations. The CRM uses organization-scoped RLS and authenticated RPCs.
+Contacts and their complete activity trails are visible only to the assigned owner and administrators. Rewards are derived and deduplicated in the database, so browser-supplied points cannot change the ledger. Linking a CRM contact to an outreach candidate requires matching project scope and ownership.
+
+Apply all files in `supabase/migrations/` in order. The CRM uses assignment-scoped RLS, authenticated RPCs, and the final access-hardening migration.
 
 ## Local Setup
 
