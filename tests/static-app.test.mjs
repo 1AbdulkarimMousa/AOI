@@ -193,17 +193,18 @@ test("secures administrator user creation in a Supabase Edge Function", async ()
 });
 
 test("includes the persisted outreach, evidence, and email operation contracts", async () => {
-  const [api, template, operations, migration, emailMigration] = await Promise.all([
+  const [api, template, outreachTemplate, operations, migration, emailMigration] = await Promise.all([
     readFile(new URL("src/js/api.js", root), "utf8"),
     readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+    readFile(new URL("src/js/outreach-template.js", root), "utf8"),
     readFile(new URL("src/js/operations.js", root), "utf8"),
     readFile(new URL("supabase/migrations/202608040001_outreach_operations.sql", root), "utf8"),
     readFile(new URL("supabase/migrations/202608040002_email_automation.sql", root), "utf8"),
   ]);
 
-  assert.match(template, /KOL outreach command center/);
-  assert.match(template, /Evidence & consent ledger/);
-  assert.match(template, /Data portability/);
+  assert.match(template + outreachTemplate, /KOL outreach command center/);
+  assert.match(template + outreachTemplate, /Evidence & consent ledger/);
+  assert.match(template + outreachTemplate, /Data portability/);
   assert.match(operations, /parseCandidateImport/);
   assert.match(operations, /buildRecommendations/);
   assert.match(api, /rpc_aoi_operations_snapshot/);

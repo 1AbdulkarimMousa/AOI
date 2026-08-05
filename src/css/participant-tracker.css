@@ -95,6 +95,7 @@
 .crm-local-tabs button { border: 0; border-bottom: 2px solid transparent; padding: .7rem .85rem; background: transparent; color: var(--muted, oklch(52% 0.025 65)); font: inherit; font-weight: 700; cursor: pointer; }
 .crm-local-tabs button:hover, .crm-local-tabs button:focus-visible { color: var(--ink, oklch(24% 0.025 65)); }
 .crm-local-tabs button.active { border-bottom-color: var(--orange, oklch(67% 0.17 45)); color: var(--ink, oklch(24% 0.025 65)); }
+.outreach-section-tabs { max-width: 100%; margin-bottom: 1.25rem; overflow-x: auto; }
 
 @media (max-width: 900px) {
   .participant-hero { align-items: start; flex-direction: column; }

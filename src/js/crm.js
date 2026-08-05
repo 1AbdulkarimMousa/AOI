@@ -1,6 +1,33 @@
 const REQUIRED_CONTACT_FIELDS = ["name", "contactType", "primaryChannel", "sourceUrl", "nextAction", "nextActionDue"];
+const OUTREACH_SECTIONS = new Set(["pipeline", "evidence", "imports"]);
+const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", imports: "imports" };
 
 export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
+
+export function resolveCrmWorkspaceRoute({ view, tab, section, defaultView } = {}) {
+  if (LEGACY_OUTREACH_VIEWS[view]) {
+    return {
+      view: "crm",
+      crmTab: "outreach",
+      outreachSection: LEGACY_OUTREACH_VIEWS[view],
+      normalize: true,
+    };
+  }
+
+  const resolvedView = view || defaultView;
+  const crmTab = resolvedView === "crm" && ["recruitment", "outreach"].includes(tab) ? tab : "contacts";
+  const hasValidOutreachSection = OUTREACH_SECTIONS.has(section);
+  const hasNonCanonicalTab = resolvedView === "crm" && Boolean(tab) && !["recruitment", "outreach"].includes(tab);
+  const hasNonCanonicalSection = resolvedView === "crm"
+    ? (crmTab === "outreach" ? !hasValidOutreachSection : Boolean(section))
+    : Boolean(tab || section);
+  return {
+    view: resolvedView,
+    crmTab,
+    outreachSection: crmTab === "outreach" && hasValidOutreachSection ? section : "pipeline",
+    normalize: hasNonCanonicalTab || hasNonCanonicalSection,
+  };
+}
 
 export function createContactDraft(ownerName = "") {
   return {

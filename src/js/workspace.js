@@ -25,7 +25,7 @@ import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
 import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
-import { buildTodayQueue, contactCompleteness, createContactDraft, rewardForAction } from "./crm.js";
+import { buildTodayQueue, contactCompleteness, createContactDraft, resolveCrmWorkspaceRoute, rewardForAction } from "./crm.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 
@@ -99,6 +99,8 @@ export function registerWorkspace(Alpine) {
     locale: localStorage.getItem("aoi-locale") === "zh-CN" ? "zh-CN" : "en",
     dark: localStorage.getItem("aoi-theme") === "dark",
     crmTab: "contacts",
+    outreachSection: "pipeline",
+    recruitmentMounted: false,
     mobileNav: false,
     sidebarCollapsed: false,
     commandOpen: false,
@@ -180,10 +182,7 @@ export function registerWorkspace(Alpine) {
         { id: "crm", label: "CRM" },
         { id: "work", label: "My work" },
        { id: "collect", label: "Collect" },
-       { id: "outreach", label: "Outreach" },
-       { id: "evidence", label: "Evidence" },
        { id: "analyze", label: "Analyze" },
-       { id: "imports", label: "Imports" },
        { id: "reports", label: "Reports" },
        { id: "team", label: "Team momentum" },
      ],
@@ -195,8 +194,20 @@ export function registerWorkspace(Alpine) {
        const requestedView = searchParams.get("view");
        const requestedContactId = searchParams.get("contact");
        const requestedTab = searchParams.get("tab");
-       if (this.navigation.some((item) => item.id === requestedView)) this.view = requestedView;
-       if (requestedView === "crm" && requestedTab === "recruitment") this.crmTab = "recruitment";
+       const route = resolveCrmWorkspaceRoute({ view: requestedView, tab: requestedTab, section: searchParams.get("section"), defaultView: this.view });
+       if (this.navigation.some((item) => item.id === route.view)) this.view = route.view;
+       this.crmTab = route.crmTab;
+       this.outreachSection = route.outreachSection;
+       this.recruitmentMounted = route.crmTab === "recruitment";
+       if (requestedContactId) {
+         this.view = "crm";
+         this.crmTab = "contacts";
+         this.outreachSection = "pipeline";
+         this.replaceCrmLocation();
+       } else if (route.normalize) {
+         if (route.view === "crm") this.replaceCrmLocation();
+         else this.replaceWorkspaceLocation(route.view);
+       }
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
         const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
@@ -209,6 +220,7 @@ export function registerWorkspace(Alpine) {
         };
         this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
         this.hydrateDailyEod(this.data.dailyEod);
+        this.openRequestedCrmContact(requestedContactId);
         this.preview = true;
         this.ready = true;
         this.loading = false;
@@ -229,19 +241,12 @@ export function registerWorkspace(Alpine) {
           location.replace(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
           return;
         }
-        this.access = access;
+         this.access = access;
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
-         this.ready = true;
-         await this.refreshDashboard();
-         if (requestedContactId) {
-           const contact = this.crmContacts.find((item) => item.id === requestedContactId);
-           if (contact) {
-             this.selectCrmContact(contact);
-             this.view = "crm";
-             this.crmTab = "contacts";
-           }
-         }
+          this.ready = true;
+          await this.refreshDashboard();
+          this.openRequestedCrmContact(requestedContactId);
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
       } catch (reason) {
@@ -387,19 +392,57 @@ export function registerWorkspace(Alpine) {
     },
 
     setView(view) {
-      view = { research: "collect", pmf: "analyze" }[view] || view;
-      this.view = view;
-      if (view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
+      const route = resolveCrmWorkspaceRoute({ view });
+      if (route.normalize && route.view === "crm") {
+        this.view = route.view;
+        this.crmTab = route.crmTab;
+        this.outreachSection = route.outreachSection;
+      } else {
+        view = { research: "collect", pmf: "analyze" }[view] || view;
+        this.view = view;
+        if (view === "crm") {
+          this.crmTab = "contacts";
+          this.outreachSection = "pipeline";
+        }
+      }
+      if (this.view === "crm") this.replaceCrmLocation();
+      else this.replaceWorkspaceLocation(this.view);
+      if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
     setCrmTab(tab) {
-      this.crmTab = tab === "recruitment" ? "recruitment" : "contacts";
+      const route = resolveCrmWorkspaceRoute({ view: "crm", tab, section: this.outreachSection });
+      this.view = "crm";
+      this.crmTab = route.crmTab;
+      this.outreachSection = route.outreachSection;
+      if (route.crmTab === "recruitment") this.recruitmentMounted = true;
+      this.replaceCrmLocation();
+    },
+    setOutreachSection(section) {
+      const route = resolveCrmWorkspaceRoute({ view: "crm", tab: "outreach", section });
+      this.view = "crm";
+      this.crmTab = route.crmTab;
+      this.outreachSection = route.outreachSection;
+      this.replaceCrmLocation();
+    },
+    replaceWorkspaceLocation(view) {
+      const url = new URL(location.href);
+      url.searchParams.set("view", view);
+      url.searchParams.delete("tab");
+      url.searchParams.delete("section");
+      url.searchParams.delete("contact");
+      window.history.replaceState({}, "", url);
+    },
+    replaceCrmLocation() {
       const url = new URL(location.href);
       url.searchParams.set("view", "crm");
-      if (this.crmTab === "recruitment") url.searchParams.set("tab", "recruitment");
-      else url.searchParams.delete("tab");
+      if (this.crmTab === "contacts") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", this.crmTab);
+      if (this.crmTab === "outreach") url.searchParams.set("section", this.outreachSection);
+      else url.searchParams.delete("section");
+      if (this.crmTab !== "contacts") url.searchParams.delete("contact");
       window.history.replaceState({}, "", url);
     },
     toggleTheme() {
@@ -442,6 +485,15 @@ export function registerWorkspace(Alpine) {
       this.crmNotice = null;
       this.crmActionNotice = null;
       this.crmEditorOpen = true;
+    },
+    openRequestedCrmContact(contactId) {
+      if (!contactId) return;
+      this.view = "crm";
+      this.crmTab = "contacts";
+      this.outreachSection = "pipeline";
+      this.replaceCrmLocation();
+      const contact = this.crmContacts.find((item) => item.id === contactId);
+      if (contact) this.selectCrmContact(contact);
     },
     startNewCrmContact() {
       this.selectedCrmContact = null;
@@ -531,11 +583,11 @@ export function registerWorkspace(Alpine) {
       this.data.outreachSummary = { ...this.data.outreachSummary, totalCandidates: this.candidates.length };
     },
     startNewCandidate() {
+      this.setOutreachSection("pipeline");
       this.selectedCandidate = null;
       this.candidateEditorOpen = true;
       this.candidateForm = { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: this.access?.displayName || "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" };
       this.candidateNotice = null;
-      this.view = "outreach";
     },
     async importFile(event) {
       const file = event.target.files?.[0];
