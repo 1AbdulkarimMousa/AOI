@@ -1,4 +1,4 @@
-import { changePassword, getExistingWorkspaceAccess, requestPasswordReset, signIn } from "./auth.js";
+import { changePassword, getExistingWorkspaceAccess, requestPasswordReset, signIn, signOut } from "./auth.js";
 import { isPasswordRecoveryUrl } from "./login-flow.js";
 import { pageUrl, readableError, routeForRole } from "./core.js";
 
@@ -6,6 +6,7 @@ export function registerLogin(Alpine) {
   Alpine.data("loginPage", () => ({
     email: "",
     password: "",
+    currentPassword: "",
     showPassword: false,
     checking: true,
     loading: false,
@@ -25,8 +26,8 @@ export function registerLogin(Alpine) {
         }
         const access = await getExistingWorkspaceAccess();
         if (access?.mustChangePassword) {
-          this.access = access;
-          this.passwordSetup = true;
+          await signOut();
+          this.message = "Sign in again with your temporary password to replace it.";
         } else if (access) location.replace(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
       } catch {
         this.error = "Unable to check your session. You can still sign in.";
@@ -42,7 +43,7 @@ export function registerLogin(Alpine) {
         const access = await signIn(this.email, this.password);
         if (access.mustChangePassword) {
           this.access = access;
-          this.password = "";
+          this.currentPassword = this.password;
           this.passwordSetup = true;
         } else location.assign(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
       } catch (reason) {
@@ -60,7 +61,7 @@ export function registerLogin(Alpine) {
       }
       this.loading = true;
       try {
-        const access = await changePassword(this.newPassword);
+        const access = await changePassword(this.newPassword, this.currentPassword);
         location.assign(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
       } catch (reason) {
         this.error = readableError(reason, "Unable to update your password.");

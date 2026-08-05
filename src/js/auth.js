@@ -50,11 +50,11 @@ export async function signOut() {
   await getSupabaseClient().auth.signOut();
 }
 
-export async function completePasswordChange(password) {
+export async function completePasswordChange(password, currentPassword = "") {
   if (!isStrongPassword(password)) throw new Error("Choose a password with at least 12 characters.");
   const client = getSupabaseClient();
   const { data, error } = await client.functions.invoke("admin-create-user", {
-    body: { action: "complete_password_change", password },
+    body: { action: "complete_password_change", password, currentPassword },
   });
   if (error || data?.error) throw new Error(data?.error || error?.message || "Unable to change the password.");
   return data.access;
@@ -67,12 +67,14 @@ export async function requestPasswordReset(email, redirectTo) {
   if (error) throw new Error(error.message);
 }
 
-export async function changePassword(password) {
+export async function changePassword(password, currentPassword = "") {
   if (!isStrongPassword(password)) throw new Error("Choose a password with at least 12 characters.");
   const client = getSupabaseClient();
+  const access = await requireWorkspaceAccess();
+  if (access.mustChangePassword) return completePasswordChange(password, currentPassword);
   const updated = await client.auth.updateUser({ password });
   if (updated.error) throw new Error(updated.error.message);
-  const marked = await client.rpc("rpc_mark_password_changed");
-  if (marked.error) throw new Error(marked.error.message);
+  const recorded = await client.rpc("rpc_record_password_changed_at");
+  if (recorded.error) throw new Error("Password changed, but the reminder timestamp could not be saved.");
   return await requireWorkspaceAccess();
 }

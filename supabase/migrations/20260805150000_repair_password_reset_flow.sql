@@ -1,5 +1,10 @@
 -- Repair legacy temporary-password accounts and support both password reset paths.
 
+alter table public.organization_memberships drop constraint if exists organization_memberships_owner_check;
+alter table public.organization_memberships add constraint organization_memberships_owner_check
+  check (not is_owner or (role = 'admin' and status in ('active', 'password_change_required'))) not valid;
+alter table public.organization_memberships validate constraint organization_memberships_owner_check;
+
 update public.profiles
 set status = 'password_change_required', updated_at = clock_timestamp()
 where must_change_password and status = 'active';

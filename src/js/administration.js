@@ -1,4 +1,5 @@
 import {
+  changeOwnAdministrationPassword,
   createAdminTask,
   createAdminUser,
   exportAdministrationData,
@@ -7,10 +8,12 @@ import {
   loadAdministrationPeople,
   loadAdministrationPerson,
   runAdministrationUserAction,
+  resetAdministrationUserPassword,
   updateAdministrationPerson,
 } from "./api.js";
 import { requireWorkspaceAccess, signOut } from "./auth.js";
 import { buildAdministrationExport, createPersonDraft, filterAdministrationPeople, parseAdministrationImport } from "./administration-data.js";
+import { createResetPasswordDraft, createSelfPasswordDraft, validatePasswordReset, validateSelfPasswordChange } from "./administration-password.js";
 import { initials, pageUrl, readableError, routeForRole } from "./core.js";
 
 const previewPeople = [
@@ -94,6 +97,11 @@ export function registerAdministration(Alpine) {
     archiveForm: { replacementUserId: "", departureDate: "", reason: "" },
     personForm: createPersonDraft(),
     personNotice: null,
+    passwordNotice: null,
+    passwordBusy: false,
+    selfPasswordForm: createSelfPasswordDraft(),
+    resetPasswordForm: createResetPasswordDraft(),
+    resetPasswordResult: "",
     savingPerson: false,
     taskForm: taskDraft(),
     taskNotice: null,
@@ -147,6 +155,8 @@ export function registerAdministration(Alpine) {
     get activePeople() { return this.people.filter((person) => person.membershipStatus === "active"); },
     get archivedPeople() { return this.people.filter((person) => person.membershipStatus === "archived"); },
     get currentUserIsOwner() { return Boolean(this.people.find((person) => person.userId === this.access?.userId)?.isOwner || this.access?.isOwner); },
+    get selectedPersonIsSelf() { return this.selectedPerson?.person?.userId === this.access?.userId; },
+    get selectedPersonPasswordEligible() { return this.selectedPerson?.person?.membershipStatus === "active" && this.selectedPerson?.person?.profileStatus === "active"; },
     get archiveReplacements() { return this.activePeople.filter((person) => person.userId !== this.selectedPerson?.person?.userId); },
     get importSummary() {
       const counts = this.importPreview?.counts || {};
@@ -179,6 +189,10 @@ export function registerAdministration(Alpine) {
     async openPerson(person) {
       this.drawerReturnFocus = document.activeElement;
       this.personNotice = null;
+      this.passwordNotice = null;
+      this.selfPasswordForm = createSelfPasswordDraft();
+      this.resetPasswordForm = createResetPasswordDraft();
+      this.resetPasswordResult = "";
       this.archiveForm = { replacementUserId: "", departureDate: new Date().toISOString().slice(0, 10), reason: "" };
       this.personTab = "profile";
       this.selectedPerson = this.preview ? previewPersonDetail(person) : { person: { ...person }, onboarding: [], workload: {}, recentAudit: [] };
@@ -193,6 +207,10 @@ export function registerAdministration(Alpine) {
       this.archiveOpen = false;
       this.selectedPerson = null;
       this.personNotice = null;
+      this.passwordNotice = null;
+      this.selfPasswordForm = createSelfPasswordDraft();
+      this.resetPasswordForm = createResetPasswordDraft();
+      this.resetPasswordResult = "";
       const returnFocus = this.drawerReturnFocus;
       this.drawerReturnFocus = null;
       this.$nextTick(() => returnFocus?.focus?.());
@@ -235,6 +253,61 @@ export function registerAdministration(Alpine) {
       } catch (reason) {
         this.personNotice = { tone: "error", text: readableError(reason, "Unable to save this profile.") };
       } finally { this.savingPerson = false; }
+    },
+    async changeOwnPassword() {
+      this.passwordNotice = null;
+      const errors = validateSelfPasswordChange(this.selfPasswordForm);
+      if (errors.length) {
+        this.passwordNotice = { tone: "error", text: errors.join(" ") };
+        return;
+      }
+      this.passwordBusy = true;
+      try {
+        if (this.preview) throw new Error("Preview mode does not change passwords.");
+        const result = await changeOwnAdministrationPassword({
+          currentPassword: this.selfPasswordForm.currentPassword,
+          newPassword: this.selfPasswordForm.newPassword,
+        });
+        this.selfPasswordForm = createSelfPasswordDraft();
+        this.passwordNotice = {
+          tone: "success",
+          text: result.auditWarning ? "Password changed. The audit entry needs administrator attention." : "Password changed successfully.",
+        };
+      } catch (reason) {
+        this.passwordNotice = { tone: "error", text: readableError(reason, "Unable to change your password.") };
+      } finally {
+        this.passwordBusy = false;
+      }
+    },
+    async resetUserPassword() {
+      this.passwordNotice = null;
+      this.resetPasswordResult = "";
+      const errors = validatePasswordReset(this.resetPasswordForm);
+      if (errors.length) {
+        this.passwordNotice = { tone: "error", text: errors.join(" ") };
+        return;
+      }
+      if (!this.selectedPersonPasswordEligible) {
+        this.passwordNotice = { tone: "error", text: "Restore or activate this account before resetting its password." };
+        return;
+      }
+      this.passwordBusy = true;
+      try {
+        if (this.preview) throw new Error("Preview mode does not reset passwords.");
+        const result = await resetAdministrationUserPassword(this.selectedPerson.person.userId, this.resetPasswordForm);
+        this.resetPasswordResult = result.temporaryPassword;
+        this.selectedPerson.person.membershipStatus = "password_change_required";
+        this.resetPasswordForm = createResetPasswordDraft();
+        this.passwordNotice = {
+          tone: "success",
+          text: result.auditWarning ? "Password reset. The audit entry needs administrator attention." : "Temporary password created. It will be shown only once.",
+        };
+        await this.refresh();
+      } catch (reason) {
+        this.passwordNotice = { tone: "error", text: readableError(reason, "Unable to reset this password.") };
+      } finally {
+        this.passwordBusy = false;
+      }
     },
     async archivePerson() {
       this.savingPerson = true;

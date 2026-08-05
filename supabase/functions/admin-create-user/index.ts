@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 type AdminUserInput = {
-  action?: "create" | "archive" | "restore" | "complete_password_change" | "import";
+  action?: "create" | "archive" | "restore" | "complete_password_change" | "change_own_password" | "reset_user_password" | "import";
   userId?: string;
   replacementUserId?: string;
   reason?: string;
@@ -10,6 +10,9 @@ type AdminUserInput = {
   displayName?: string;
   email?: string;
   password?: string;
+  currentPassword?: string;
+  newPassword?: string;
+  resetMode?: "generated" | "custom";
   role?: "admin" | "intern";
   accessMethod?: "invite" | "temporary_password";
   locale?: "en" | "zh-CN";
@@ -48,6 +51,13 @@ function corsHeaders(origin: string) {
 
 function json(origin: string, status: number, payload: Record<string, unknown>) {
   return Response.json(payload, { status, headers: corsHeaders(origin) });
+}
+
+function generateTemporaryPassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*?";
+  const bytes = new Uint8Array(14);
+  crypto.getRandomValues(bytes);
+  return `Aa1!${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
 }
 
 async function cleanupProvisioning(adminClient: ReturnType<typeof createClient>, organizationId: string, userId: string) {
@@ -102,7 +112,21 @@ Deno.serve(async (request) => {
 
   if (action === "complete_password_change") {
     const password = String(body.password || "");
+    const currentPassword = String(body.currentPassword || "");
+    const authMethods = Array.isArray(claimData?.claims?.amr) ? claimData.claims.amr as Array<{ method?: string }> : [];
+    const recoverySession = authMethods.some((method) => method?.method === "recovery");
     if (password.length < 12) return json(origin, 400, { error: "Choose a password with at least 12 characters." });
+    if (!recoverySession) {
+      if (!currentPassword) return json(origin, 400, { error: "Enter your current temporary password." });
+      if (currentPassword === password) return json(origin, 400, { error: "Choose a password that differs from your temporary password." });
+      const authUser = await adminClient.auth.admin.getUserById(callerId);
+      const email = authUser.data.user?.email;
+      if (authUser.error || !email) return json(origin, 400, { error: "Your Auth account could not be verified." });
+      const credentialClient = createClient(supabaseUrl, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const reauthenticated = await credentialClient.auth.signInWithPassword({ email, password: currentPassword });
+      if (reauthenticated.error) return json(origin, 400, { error: "The current temporary password is incorrect." });
+      await credentialClient.auth.signOut();
+    }
     const { data: profile } = await adminClient.from("profiles").select("status,must_change_password").eq("id", callerId).maybeSingle();
     if (!profile?.must_change_password || !["active", "password_change_required"].includes(profile.status)) return json(origin, 409, { error: "This account does not require a password change." });
     const updated = await adminClient.auth.admin.updateUserById(callerId, { password });
@@ -124,6 +148,82 @@ Deno.serve(async (request) => {
   if (membershipError || !membership) return json(origin, 403, { error: "Administrator permission is required." });
   const { data: callerProfile } = await adminClient.from("profiles").select("status,must_change_password").eq("id", callerId).maybeSingle();
   if (callerProfile?.status !== "active" || callerProfile.must_change_password) return json(origin, 403, { error: "Complete secure account activation before using Administration." });
+
+  if (action === "change_own_password") {
+    const currentPassword = String(body.currentPassword || "");
+    const password = String(body.newPassword || "");
+    if (!currentPassword) return json(origin, 400, { error: "Enter your current password." });
+    if (password.length < 12) return json(origin, 400, { error: "New passwords must contain at least 12 characters." });
+    if (password === currentPassword) return json(origin, 400, { error: "Choose a new password that differs from your current password." });
+
+    const authUser = await adminClient.auth.admin.getUserById(callerId);
+    const email = authUser.data.user?.email;
+    if (authUser.error || !email) return json(origin, 400, { error: "Your Auth account could not be verified." });
+    const credentialClient = createClient(supabaseUrl, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const reauthenticated = await credentialClient.auth.signInWithPassword({ email, password: currentPassword });
+    if (reauthenticated.error) return json(origin, 400, { error: "The current password is incorrect." });
+    await credentialClient.auth.signOut();
+
+    const updated = await adminClient.auth.admin.updateUserById(callerId, { password });
+    if (updated.error) return json(origin, 400, { error: updated.error.message });
+    const completed = await adminClient.rpc("rpc_admin_complete_self_password_change", {
+      p_organization_id: membership.organization_id,
+      p_actor_id: callerId,
+    });
+    return json(origin, 200, {
+      changed: true,
+      auditWarning: Boolean(completed.error),
+    });
+  }
+
+  if (action === "reset_user_password") {
+    const targetUserId = String(body.userId || "");
+    const reason = String(body.reason || "").trim();
+    const resetMode = body.resetMode === "custom" ? "custom" : "generated";
+    if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) return json(origin, 400, { error: "Choose a valid user to reset." });
+    if (targetUserId === callerId) return json(origin, 400, { error: "Use Change my password for your own account." });
+    if (reason.length < 3) return json(origin, 400, { error: "Record why this password is being reset." });
+    const generatedPassword = resetMode === "generated" ? generateTemporaryPassword() : String(body.password || "");
+    if (generatedPassword.length < 12) return json(origin, 400, { error: "Temporary passwords must contain at least 12 characters." });
+
+    const prepared = await adminClient.rpc("rpc_admin_prepare_password_reset", {
+      p_organization_id: membership.organization_id,
+      p_actor_id: callerId,
+      p_target_user_id: targetUserId,
+      p_reason: reason,
+      p_mode: resetMode,
+    });
+    if (prepared.error) return json(origin, 400, { error: prepared.error.message });
+
+    const updated = await adminClient.auth.admin.updateUserById(targetUserId, { password: generatedPassword, email_confirm: true });
+    if (updated.error) {
+      const restored = await adminClient.rpc("rpc_admin_restore_password_state", {
+        p_organization_id: membership.organization_id,
+        p_actor_id: callerId,
+        p_target_user_id: targetUserId,
+        p_previous: prepared.data,
+      });
+      return json(origin, restored.error ? 500 : 400, {
+        error: restored.error
+          ? "Auth reset failed and prior workspace state needs administrator attention."
+          : "The Auth password could not be reset.",
+      });
+    }
+
+    const audited = await adminClient.rpc("rpc_admin_record_password_reset", {
+      p_organization_id: membership.organization_id,
+      p_actor_id: callerId,
+      p_target_user_id: targetUserId,
+      p_reason: reason,
+      p_mode: resetMode,
+      p_previous: prepared.data,
+    });
+    return json(origin, 200, {
+      reset: true,
+      temporaryPassword: generatedPassword,
+      auditWarning: Boolean(audited.error),
+    });
+  }
 
   if (action === "import") {
     if (!body.packageData || !body.mode || !body.previewJobId) return json(origin, 400, { error: "Preview the administration package before applying it." });

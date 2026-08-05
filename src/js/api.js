@@ -260,6 +260,19 @@ export async function runAdministrationUserAction(action, input) {
   return data;
 }
 
+export async function changeOwnAdministrationPassword(input) {
+  return runAdministrationUserAction("change_own_password", input);
+}
+
+export async function resetAdministrationUserPassword(userId, input) {
+  return runAdministrationUserAction("reset_user_password", {
+    userId,
+    resetMode: input.mode,
+    password: input.mode === "custom" ? input.temporaryPassword : undefined,
+    reason: input.reason,
+  });
+}
+
 export async function exportAdministrationData(scope = "full") {
   const { data, error } = await getSupabaseClient().rpc("rpc_admin_export_data", { p_scope: scope });
   if (error) throw new Error(error.message);

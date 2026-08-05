@@ -5,7 +5,7 @@ import test from "node:test";
 const flow = await import("../src/js/login-flow.js").catch(() => null);
 const auth = await readFile(new URL("../src/js/auth.js", import.meta.url), "utf8");
 const login = await readFile(new URL("../src/js/login.js", import.meta.url), "utf8");
-const migration = await readFile(new URL("../supabase/migrations/20260805130000_repair_password_reset_flow.sql", import.meta.url), "utf8").catch(() => "");
+const migration = await readFile(new URL("../supabase/migrations/20260805150000_repair_password_reset_flow.sql", import.meta.url), "utf8").catch(() => "");
 
 test("recognizes Supabase recovery callbacks in query strings and URL fragments", () => {
   assert.ok(flow, "Login flow helpers must exist");
