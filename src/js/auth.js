@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "./supabase.js";
+import { isStrongPassword } from "./password-reminder.js";
 
 export async function getSession() {
   const { data, error } = await getSupabaseClient().auth.getSession();
@@ -50,11 +51,28 @@ export async function signOut() {
 }
 
 export async function completePasswordChange(password) {
-  if (String(password || "").length < 12) throw new Error("Choose a password with at least 12 characters.");
+  if (!isStrongPassword(password)) throw new Error("Choose a password with at least 12 characters.");
   const client = getSupabaseClient();
   const { data, error } = await client.functions.invoke("admin-create-user", {
     body: { action: "complete_password_change", password },
   });
   if (error || data?.error) throw new Error(data?.error || error?.message || "Unable to change the password.");
   return data.access;
+}
+
+export async function requestPasswordReset(email, redirectTo) {
+  const value = String(email || "").trim().toLowerCase();
+  if (!value) throw new Error("Enter your email address first.");
+  const { error } = await getSupabaseClient().auth.resetPasswordForEmail(value, { redirectTo });
+  if (error) throw new Error(error.message);
+}
+
+export async function changePassword(password) {
+  if (!isStrongPassword(password)) throw new Error("Choose a password with at least 12 characters.");
+  const client = getSupabaseClient();
+  const updated = await client.auth.updateUser({ password });
+  if (updated.error) throw new Error(updated.error.message);
+  const marked = await client.rpc("rpc_mark_password_changed");
+  if (marked.error) throw new Error(marked.error.message);
+  return await requireWorkspaceAccess();
 }

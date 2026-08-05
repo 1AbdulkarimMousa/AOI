@@ -50,11 +50,6 @@ function json(origin: string, status: number, payload: Record<string, unknown>) 
   return Response.json(payload, { status, headers: corsHeaders(origin) });
 }
 
-function temporaryPassword() {
-  const random = crypto.randomUUID().replaceAll("-", "");
-  return `AOI!${random.slice(0, 8)}-${random.slice(8, 16)}a9`;
-}
-
 async function cleanupProvisioning(adminClient: ReturnType<typeof createClient>, organizationId: string, userId: string) {
   const errors: string[] = [];
   for (const operation of [
@@ -109,7 +104,7 @@ Deno.serve(async (request) => {
     const password = String(body.password || "");
     if (password.length < 12) return json(origin, 400, { error: "Choose a password with at least 12 characters." });
     const { data: profile } = await adminClient.from("profiles").select("status,must_change_password").eq("id", callerId).maybeSingle();
-    if (!profile?.must_change_password || profile.status !== "password_change_required") return json(origin, 409, { error: "This account does not require a password change." });
+    if (!profile?.must_change_password || !["active", "password_change_required"].includes(profile.status)) return json(origin, 409, { error: "This account does not require a password change." });
     const updated = await adminClient.auth.admin.updateUserById(callerId, { password });
     if (updated.error) return json(origin, 400, { error: updated.error.message });
     const completed = await adminClient.rpc("rpc_complete_password_change", { p_user_id: callerId });
@@ -200,8 +195,8 @@ Deno.serve(async (request) => {
   if (role !== "admin" && role !== "intern") return json(origin, 400, { error: "Choose a valid workspace role." });
   if (role === "admin" && !membership.is_owner) return json(origin, 403, { error: "Only the organization owner can add another administrator." });
 
-  const generatedPassword = accessMethod === "temporary_password" ? (String(body.password || "") || temporaryPassword()) : "";
-  if (accessMethod === "temporary_password" && generatedPassword.length < 10) return json(origin, 400, { error: "Temporary passwords must contain at least 10 characters." });
+  const generatedPassword = accessMethod === "temporary_password" ? (String(body.password || "") || "123456") : "";
+  if (accessMethod === "temporary_password" && generatedPassword !== "123456" && generatedPassword.length < 10) return json(origin, 400, { error: "Temporary passwords must contain at least 10 characters." });
 
   const created = accessMethod === "invite"
     ? await adminClient.auth.admin.inviteUserByEmail(email, {
@@ -226,6 +221,7 @@ Deno.serve(async (request) => {
     locale: body.locale === "zh-CN" ? "zh-CN" : "en",
     must_change_password: !invited,
     status: initialStatus,
+    password_reminder_seeded_at: accessMethod === "temporary_password" ? new Date().toISOString() : null,
   });
   const { error: membershipInsertError } = profileError
     ? { error: profileError }
@@ -259,6 +255,7 @@ Deno.serve(async (request) => {
     { organization_id: membership.organization_id, user_id: userId, step_key: "secure_account", label: "Secure your account", sequence: 10 },
     { organization_id: membership.organization_id, user_id: userId, step_key: "review_workspace", label: "Review workspace responsibilities", sequence: 20 },
     { organization_id: membership.organization_id, user_id: userId, step_key: "review_data_handling", label: "Review data handling rules", sequence: 30 },
+    { organization_id: membership.organization_id, user_id: userId, step_key: "log_crm_outcome", label: "Log CRM outcomes", sequence: 35 },
     { organization_id: membership.organization_id, user_id: userId, step_key: "file_first_eod", label: "File your first EOD brief", sequence: 40 },
   ]);
   if (onboarding.error) {

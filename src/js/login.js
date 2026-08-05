@@ -1,4 +1,5 @@
-import { completePasswordChange, getExistingWorkspaceAccess, signIn } from "./auth.js";
+import { changePassword, getExistingWorkspaceAccess, requestPasswordReset, signIn } from "./auth.js";
+import { isPasswordRecoveryUrl } from "./login-flow.js";
 import { pageUrl, readableError, routeForRole } from "./core.js";
 
 export function registerLogin(Alpine) {
@@ -9,12 +10,19 @@ export function registerLogin(Alpine) {
     checking: true,
     loading: false,
     error: "",
+    message: "",
     access: null,
     passwordSetup: false,
+    recovery: false,
     newPassword: "",
     confirmPassword: "",
     async init() {
       try {
+        this.recovery = isPasswordRecoveryUrl(location.href);
+        if (this.recovery) {
+          this.passwordSetup = true;
+          return;
+        }
         const access = await getExistingWorkspaceAccess();
         if (access?.mustChangePassword) {
           this.access = access;
@@ -28,6 +36,7 @@ export function registerLogin(Alpine) {
     },
     async submit() {
       this.error = "";
+      this.message = "";
       this.loading = true;
       try {
         const access = await signIn(this.email, this.password);
@@ -44,13 +53,14 @@ export function registerLogin(Alpine) {
     },
     async changePassword() {
       this.error = "";
+      this.message = "";
       if (this.newPassword !== this.confirmPassword) {
         this.error = "The passwords do not match.";
         return;
       }
       this.loading = true;
       try {
-        const access = await completePasswordChange(this.newPassword);
+        const access = await changePassword(this.newPassword);
         location.assign(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
       } catch (reason) {
         this.error = readableError(reason, "Unable to update your password.");
@@ -58,6 +68,23 @@ export function registerLogin(Alpine) {
         this.loading = false;
       }
     },
-    forgot() { this.error = "Ask an AOI administrator to reset your password."; },
+    async forgot() {
+      this.error = "";
+      this.message = "";
+      if (!this.email.trim()) {
+        this.error = "Enter your email address first.";
+        return;
+      }
+      this.loading = true;
+      try {
+        const redirectTo = new URL(`${import.meta.env.BASE_URL || "/"}login.html`, location.origin).toString();
+        await requestPasswordReset(this.email, redirectTo);
+        this.message = "If an AOI account exists for that email, a password reset link is on its way.";
+      } catch (reason) {
+        this.error = readableError(reason, "Unable to send a password reset email.");
+      } finally {
+        this.loading = false;
+      }
+    },
   }));
 }
