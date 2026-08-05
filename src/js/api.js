@@ -2,17 +2,21 @@ import { getSupabaseClient } from "./supabase.js";
 
 export async function loadDashboard() {
   const client = getSupabaseClient();
-  const [dashboard, operations, pmf, crm] = await Promise.all([
+  const [dashboard, operations, pmf, crm, collect, gamification] = await Promise.all([
     client.rpc("rpc_aoi_demo_dashboard"),
     client.rpc("rpc_aoi_operations_snapshot"),
     client.rpc("rpc_aoi_pmf_snapshot"),
     client.rpc("rpc_aoi_crm_snapshot"),
+    client.rpc("rpc_aoi_collect_snapshot"),
+    client.rpc("rpc_aoi_gamification_summary"),
   ]);
   if (dashboard.error || !dashboard.data) throw new Error(`SUPABASE_DASHBOARD_FAILED:${dashboard.error?.code ?? "UNKNOWN"}`);
   if (operations.error) throw new Error(`SUPABASE_OPERATIONS_FAILED:${operations.error.code ?? "UNKNOWN"}`);
   if (pmf.error) throw new Error(`SUPABASE_PMF_FAILED:${pmf.error.code ?? "UNKNOWN"}`);
   if (crm.error) throw new Error(`SUPABASE_CRM_FAILED:${crm.error.code ?? "UNKNOWN"}`);
-  return { ...dashboard.data, ...operations.data, ...pmf.data, ...crm.data };
+  if (collect.error) throw new Error(`SUPABASE_COLLECT_FAILED:${collect.error.code ?? "UNKNOWN"}`);
+  if (gamification.error) throw new Error(`SUPABASE_GAMIFICATION_FAILED:${gamification.error.code ?? "UNKNOWN"}`);
+  return { ...dashboard.data, ...operations.data, ...pmf.data, ...crm.data, collect: collect.data, gamification: gamification.data };
 }
 
 export async function loadDailyEod() {
@@ -345,6 +349,35 @@ export async function loadParticipantTracker() {
 
 export async function saveParticipantRecruitment(payload) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_upsert_participant_recruitment", { p_payload: payload });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function convertParticipantToRespondent(recruitmentId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_convert_recruitment_to_respondent", {
+    p_recruitment_id: recruitmentId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadCollectSnapshot() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_collect_snapshot");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadCollectRecordDetail(recordType, recordId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_collect_record_detail", {
+    p_record_type: recordType,
+    p_record_id: recordId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadGamificationSummary() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_gamification_summary");
   if (error) throw new Error(error.message);
   return data;
 }

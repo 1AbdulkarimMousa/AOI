@@ -1,7 +1,8 @@
 import "../css/participant-tracker.css";
 
-import { loadParticipantTracker, saveParticipantRecruitment } from "./api.js";
+import { convertParticipantToRespondent, loadParticipantTracker, saveParticipantRecruitment } from "./api.js";
 import { getExistingWorkspaceAccess, signOut } from "./auth.js";
+import { conversionReadiness } from "./collect.js";
 import { initials, pageUrl, readableError, routeForRole } from "./core.js";
 
 const STATUS_OPTIONS = ["new", "contacted", "responded", "screening", "scheduled", "completed", "declined", "no_response"];
@@ -36,6 +37,7 @@ export function registerParticipantTracker(Alpine) {
     ready: false,
     loading: true,
     saving: false,
+    convertingId: "",
     error: "",
     notice: null,
     items: [],
@@ -94,6 +96,7 @@ export function registerParticipantTracker(Alpine) {
     count(status) {
       return this.items.filter((item) => item.status === status).length;
     },
+    conversionReadiness,
     openNew() {
       this.selected = null;
       this.form = blankForm(this.access?.userId || "");
@@ -140,6 +143,33 @@ export function registerParticipantTracker(Alpine) {
         this.notice = { tone: "success", text: `${item.name} moved to ${this.statusLabel(status)}.` };
       } catch (reason) {
         this.notice = { tone: "error", text: readableError(reason, "Unable to update the recruitment stage.") };
+      }
+    },
+    async convertToRespondent(item) {
+      const readiness = conversionReadiness(item);
+      if (!readiness.ready) {
+        this.notice = { tone: "error", text: readiness.reasons.join(" ") };
+        return;
+      }
+      if (this.access?.role !== "admin") {
+        this.notice = { tone: "error", text: "An administrator must approve respondent conversion." };
+        return;
+      }
+      this.convertingId = item.id;
+      this.notice = null;
+      try {
+        const converted = await convertParticipantToRespondent(item.id);
+        this.form = { ...this.form, crmContactId: converted.crmContactId, respondentId: converted.respondentId };
+        this.selected = { ...item, crmContactId: converted.crmContactId, respondentId: converted.respondentId };
+        await this.refresh();
+        this.notice = {
+          tone: "success",
+          text: `${item.name} is connected to respondent ${converted.respondentCode || converted.respondentId}.`,
+        };
+      } catch (reason) {
+        this.notice = { tone: "error", text: readableError(reason, "Unable to convert this prospect.") };
+      } finally {
+        this.convertingId = "";
       }
     },
     routeForRole,

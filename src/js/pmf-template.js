@@ -10,7 +10,30 @@ export const pmfCollectionTemplate = String.raw`
     </div>
   </section>
 
-  <section class="collection-layout">
+  <section class="collect-progress-panel" aria-label="Personal and cooperative progress">
+    <div class="collect-level"><span class="collect-level-number" x-text="gamificationLevelData.level"></span><div><span class="eyebrow">Personal progress</span><strong x-text="gamification.xp+' verified XP'"></strong><small x-text="gamificationLevelData.maxLevel ? 'Highest level reached' : gamificationLevelData.nextLevelXp-gamification.xp+' XP to level '+(gamificationLevelData.level+1)"></small></div></div>
+    <div class="collect-progress-track"><span :style="'width:'+gamificationLevelData.progress+'%'"></span></div>
+    <div class="collect-streak"><strong x-text="gamification.streakDays"></strong><span>day streak</span><small x-text="gamification.completedToday+' verified actions today'"></small></div>
+    <div class="collect-badges"><template x-for="badge in gamification.badges.slice(0,3)" :key="badge.code"><span :title="badge.description" x-text="badge.name"></span></template><small x-show="!gamification.badges.length">Badges unlock after reviewed work.</small></div>
+    <div class="collect-team-goals"><template x-for="goal in gamification.teamGoals" :key="goal.code"><div><span><strong x-text="goal.name"></strong><small x-text="Math.min(goal.progress,goal.target)+' / '+goal.target"></small></span><div class="progress-track"><span class="progress-fill progress-teal" :style="'width:'+Math.min(100,Math.round(goal.progress/goal.target*100))+'%'"></span></div></div></template></div>
+  </section>
+
+  <div class="collect-mode-switch" role="tablist" aria-label="Collect workspace mode">
+    <button role="tab" :aria-selected="collectMode==='browse'" :class="collectMode==='browse'&&'active'" @click="collectMode='browse'"><strong>Collected data</strong><small>Browse, inspect, and continue records</small></button>
+    <button role="tab" :aria-selected="collectMode==='create'" :class="collectMode==='create'&&'active'" @click="startCollectionRecord(collectionType)"><strong>New record</strong><small>Guided, prefilled research entry</small></button>
+  </div>
+
+  <section x-show="collectMode==='browse'" class="panel collect-library">
+    <div class="collect-library-head"><div><span class="eyebrow">Source-of-truth library</span><h2 x-text="filteredCollectRecords.length+' collected records'"></h2><p>Admins see the complete project. Interns see assigned drafts and approved shared research.</p></div><button class="button button-primary" @click="startCollectionRecord('respondent')">+ New record</button></div>
+    <div class="collect-filters"><label><span>Search records</span><input x-model.debounce.200ms="collectQuery" placeholder="Code, owner, segment, identity"></label><label><span>Record type</span><select x-model="collectTypeFilter"><option value="all">All records</option><option value="respondent">Respondents</option><option value="session">Sessions</option><option value="evidence">Evidence</option><option value="product_event">Product events</option><option value="value_exchange">Value exchange</option><option value="observation">PMF observations</option></select></label><label><span>Workflow</span><select x-model="collectStatusFilter"><option value="all">All states</option><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="revision_requested">Revision requested</option><option value="approved">Approved</option><option value="archived">Archived</option></select></label></div>
+    <div class="collect-table" role="table" aria-label="Collected research records">
+      <div class="collect-table-row collect-table-header" role="row"><span>Record</span><span>Respondent</span><span>Owner</span><span>Workflow</span><span>Updated</span></div>
+      <template x-for="record in filteredCollectRecords" :key="record.recordType+'-'+record.id"><button class="collect-table-row" role="row" @click="openCollectRecord(record)"><span><small x-text="record.recordType.replaceAll('_',' ')"></small><strong x-text="record.title"></strong><em x-show="record.identityTrail" x-text="record.identityTrail"></em></span><span><strong x-text="record.respondentCode||'Unlinked'"></strong><small x-text="record.segmentName||'No segment'"></small></span><span x-text="record.ownerName||'Shared contributor'"></span><span class="status-badge" :class="'status-'+record.workflowStatus" x-text="record.workflowStatus.replaceAll('_',' ')"></span><span x-text="formatDate(record.recordDate)"></span></button></template>
+      <div x-show="!filteredCollectRecords.length" class="empty-state collect-empty"><strong>No records match this view.</strong><p>Start a guided record or broaden the filters. Nothing is synthesized to fill this space.</p><button class="button button-secondary" @click="startCollectionRecord('respondent')">Create the first record</button></div>
+    </div>
+  </section>
+
+  <section x-show="collectMode==='create'" class="collection-layout">
     <nav class="collection-rail" aria-label="Collection record type">
       <button :class="collectionType==='respondent' && 'active'" @click="collectionType='respondent'"><b>01</b><span><strong>Respondent</strong><small>Identity, assignment, consent</small></span></button>
       <button :class="collectionType==='session' && 'active'" @click="collectionType='session'"><b>02</b><span><strong>Session</strong><small>Behavior and unmet need</small></span></button>
@@ -105,7 +128,7 @@ export const pmfCollectionTemplate = String.raw`
     </article>
   </section>
 
-  <section class="panel attachment-workspace">
+  <section x-show="collectMode==='create'" class="panel attachment-workspace">
     <div class="panel-heading"><div><span class="eyebrow">Private research files</span><h2>Upload only what current consent permits.</h2></div><span class="privacy-chip">Private bucket</span></div>
     <div class="attachment-grid">
       <label><span>Respondent</span><select x-model="attachmentForm.respondentId"><option value="">Choose respondent</option><template x-for="item in researchRespondents" :key="item.id"><option :value="item.id" x-text="item.externalId+' · '+item.segmentName"></option></template></select></label>
@@ -121,6 +144,20 @@ export const pmfCollectionTemplate = String.raw`
       <button class="button button-secondary" @click="saveConsentVersion()">Record consent version</button>
     </div>
   </section>
+
+  <div x-show="selectedCollectRecord" class="modal-backdrop drawer-backdrop" @mousedown.self="closeCollectRecord()">
+    <aside class="collect-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="collect-detail-title" tabindex="-1" @keydown.escape.stop="closeCollectRecord()" @keydown.tab="trapCollectDetailFocus($event)">
+      <div class="drawer-header"><span class="eyebrow" x-text="selectedCollectRecord?.recordType.replaceAll('_',' ')"></span><button class="icon-button" @click="closeCollectRecord()" aria-label="Close">×</button></div>
+      <div class="collect-detail-title"><span class="status-badge" :class="'status-'+selectedCollectRecord?.workflowStatus" x-text="selectedCollectRecord?.workflowStatus.replaceAll('_',' ')"></span><h2 id="collect-detail-title" x-text="selectedCollectRecord?.title"></h2><p x-text="selectedCollectRecord?.identityTrail||'No additional external identities'"></p></div>
+      <div x-show="loadingCollectDetail" class="empty-state compact"><strong>Loading the auditable record…</strong></div>
+      <template x-if="collectDetail"><div class="collect-detail-body">
+        <section class="collect-detail-facts"><div><span>Respondent</span><strong x-text="selectedCollectRecord?.respondentCode||'Unlinked'"></strong></div><div><span>Segment</span><strong x-text="selectedCollectRecord?.segmentName||'Not set'"></strong></div><div><span>Owner</span><strong x-text="selectedCollectRecord?.ownerName||'Shared contributor'"></strong></div><div><span>Updated</span><strong x-text="formatDate(selectedCollectRecord?.recordDate)"></strong></div></section>
+        <section x-show="selectedCollectRecord?.recordType==='respondent'" class="respondent-profile"><span class="eyebrow">Respondent profile</span><h3>Connected research timeline</h3><div class="respondent-profile-counts"><span><strong x-text="collectDetail.sessions?.length||0"></strong> sessions</span><span><strong x-text="collectDetail.evidence?.length||0"></strong> evidence</span><span><strong x-text="collectDetail.productEvents?.length||0"></strong> product events</span><span><strong x-text="collectDetail.valueExchange?.length||0"></strong> value records</span><span><strong x-text="collectDetail.consentHistory?.length||0"></strong> consent versions</span><span><strong x-text="collectDetail.attachments?.length||0"></strong> files</span></div></section>
+        <section class="collect-provenance"><span class="eyebrow">Provenance and review</span><p x-text="selectedCollectRecord?.limitations||selectedCollectRecord?.notes||'No limitations or notes recorded.'"></p><a x-show="selectedCollectRecord?.sourceLink" :href="selectedCollectRecord?.sourceLink" target="_blank" rel="noreferrer">Open source ↗</a><small x-show="selectedCollectRecord?.reviewNotes" x-text="'Review note: '+selectedCollectRecord.reviewNotes"></small></section>
+        <section x-show="selectedCollectRecord?.respondentId||selectedCollectRecord?.recordType==='respondent'" class="collect-follow-on"><span class="eyebrow">Continue collection</span><div><button class="button button-secondary" @click="closeCollectRecord();startCollectionRecord('session',selectedCollectRecord?.respondentId||selectedCollectRecord?.id)">New session</button><button class="button button-secondary" @click="closeCollectRecord();startCollectionRecord('evidence',selectedCollectRecord?.respondentId||selectedCollectRecord?.id)">New evidence</button><button class="button button-secondary" @click="closeCollectRecord();startCollectionRecord('product_event',selectedCollectRecord?.respondentId||selectedCollectRecord?.id)">Product event</button></div></section>
+      </div></template>
+    </aside>
+  </div>
 </div>`;
 
 export const pmfAnalysisTemplate = String.raw`

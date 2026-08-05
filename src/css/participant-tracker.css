@@ -85,6 +85,11 @@
 .participant-form textarea { resize: vertical; }
 .participant-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .participant-form-actions { justify-content: end; padding-top: .5rem; }
+.participant-conversion { display: grid; gap: .8rem; padding: 1rem; border: 1px solid color-mix(in oklch, var(--teal, oklch(49% 0.12 175)) 35%, var(--line, oklch(87% 0.02 75))); background: color-mix(in oklch, var(--surface, white) 90%, oklch(82% 0.08 175)); }
+.participant-conversion > div { display: grid; gap: .3rem; }
+.participant-conversion strong { font-size: 1rem; }
+.participant-conversion p { margin: 0; color: var(--muted, oklch(52% 0.025 65)); font-size: .82rem; line-height: 1.5; }
+.participant-conversion .button { justify-self: start; }
 .participant-embedded-shell { margin-top: 1.25rem; }
 .participant-embedded-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .participant-embedded-heading h2 { margin: .25rem 0; font-size: 1.8rem; letter-spacing: -.05em; }

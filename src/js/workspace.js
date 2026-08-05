@@ -9,6 +9,7 @@ import {
   loadDailyEod,
   loadDailyEodReports,
   loadDashboard,
+  loadCollectRecordDetail,
   logOutreach,
   reviewResearchRecord as persistResearchReview,
   saveDailyEodBrief,
@@ -26,6 +27,7 @@ import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
 import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, resolveCrmWorkspaceRoute, rewardForAction } from "./crm.js";
+import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 
@@ -129,8 +131,17 @@ export function registerWorkspace(Alpine) {
      importErrors: [],
       importFileName: "",
       importFileFormat: "csv",
-      importing: false,
-      collectionType: "respondent",
+       importing: false,
+       collectMode: "browse",
+       collectQuery: "",
+       collectTypeFilter: "all",
+       collectStatusFilter: "all",
+       selectedCollectRecord: null,
+       collectDetail: null,
+       collectDetailRequest: 0,
+       collectReturnFocus: null,
+       loadingCollectDetail: false,
+       collectionType: "respondent",
       researchForms: defaultResearchForms(),
       researchNotice: null,
       savingResearch: false,
@@ -146,7 +157,6 @@ export function registerWorkspace(Alpine) {
      outreachForm: { channel: "Email", kind: "Initial", status: "Drafted", summary: "" },
      evidenceForm: { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" },
     toast: null,
-    bonusXp: 0,
       dailyEodForm: createDailyEodDraft(),
       dailyEodNotice: null,
       dailyEodError: "",
@@ -241,7 +251,9 @@ export function registerWorkspace(Alpine) {
           location.replace(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
           return;
         }
-         this.access = access;
+        this.access = access;
+        this.hydrateResearchDrafts();
+        this.setupResearchDraftAutosave();
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
           this.ready = true;
@@ -361,7 +373,26 @@ export function registerWorkspace(Alpine) {
         followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= new Date().toISOString().slice(0, 10)).length,
       };
     },
-    get researchRespondents() { return this.data.respondents || []; },
+    get researchRespondents() { return this.data.collect?.respondents || this.data.respondents || []; },
+    get collectRecords() { return buildCollectIndex(this.data.collect || this.data); },
+    get filteredCollectRecords() {
+      return filterCollectRecords(this.collectRecords, {
+        type: this.collectTypeFilter,
+        status: this.collectStatusFilter,
+        query: this.collectQuery,
+      });
+    },
+    get gamification() {
+      return this.data.gamification || {
+        xp: this.data.crmProgress?.xp || 0,
+        completedToday: this.data.crmProgress?.completedToday || 0,
+        streakDays: this.data.crmProgress?.streakDays || 0,
+        badges: [],
+        recentEvents: [],
+        teamGoals: [],
+      };
+    },
+    get gamificationLevelData() { return gamificationLevel(this.gamification.xp); },
     get reviewQueue() { return this.data.reviewQueue || []; },
     get pmfMatrices() {
       return buildLayerMatrices({
@@ -668,6 +699,79 @@ export function registerWorkspace(Alpine) {
     respondentSegmentCode(respondentId) {
       return this.researchRespondents.find((item) => item.id === respondentId)?.segmentCode || "families";
     },
+    startCollectionRecord(recordType = "respondent", respondentId = "") {
+      this.collectionType = recordType;
+      this.collectMode = "create";
+      if (respondentId && this.researchForms[recordType] && recordType !== "respondent") {
+        const respondent = this.researchRespondents.find((item) => item.id === respondentId);
+        this.researchForms[recordType] = prefillResearchForm(this.researchForms[recordType], respondent);
+      }
+      this.researchNotice = null;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    async openCollectRecord(record) {
+      const requestId = ++this.collectDetailRequest;
+      this.collectReturnFocus = document.activeElement;
+      this.selectedCollectRecord = record;
+      this.collectDetail = null;
+      this.$nextTick(() => document.querySelector(".collect-detail-drawer")?.focus());
+      if (this.preview) {
+        this.collectDetail = { record };
+        return;
+      }
+      this.loadingCollectDetail = true;
+      try {
+        const detail = await loadCollectRecordDetail(record.recordType, record.id);
+        if (requestId === this.collectDetailRequest && this.selectedCollectRecord?.id === record.id) this.collectDetail = detail;
+      } catch (reason) {
+        if (requestId !== this.collectDetailRequest) return;
+        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to open the collected record.") };
+        this.selectedCollectRecord = null;
+      } finally {
+        if (requestId === this.collectDetailRequest) this.loadingCollectDetail = false;
+      }
+    },
+    closeCollectRecord() {
+      this.collectDetailRequest += 1;
+      this.selectedCollectRecord = null;
+      this.collectDetail = null;
+      this.$nextTick(() => this.collectReturnFocus?.focus?.());
+    },
+    trapCollectDetailFocus(event) {
+      const drawer = document.querySelector(".collect-detail-drawer");
+      if (!drawer) return;
+      const controls = [...drawer.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((element) => element.offsetParent !== null);
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    researchDraftStorageKey() {
+      return `aoi-research-drafts:${this.access?.userId || this.expectedRole}`;
+    },
+    hydrateResearchDrafts() {
+      try {
+        const stored = JSON.parse(globalThis.sessionStorage.getItem(this.researchDraftStorageKey()) || "null");
+        const fresh = stored?.savedAt && Date.now() - stored.savedAt < 8 * 60 * 60 * 1000;
+        this.researchForms = restoreResearchDrafts(defaultResearchForms(), fresh ? stored.forms : null);
+      } catch {
+        this.researchForms = defaultResearchForms();
+      }
+    },
+    persistResearchDrafts() {
+      if (this.preview) return;
+      globalThis.sessionStorage.setItem(this.researchDraftStorageKey(), JSON.stringify({ savedAt: Date.now(), forms: this.researchForms }));
+    },
+    setupResearchDraftAutosave() {
+      if (this.preview || typeof this.$watch !== "function") return;
+      this.$watch("researchForms", () => this.persistResearchDrafts());
+    },
     async saveResearchRecord(recordType, workflowStatus) {
       const form = this.researchForms[recordType];
       const payload = { ...form, workflowStatus };
@@ -775,7 +879,6 @@ export function registerWorkspace(Alpine) {
     },
     async completeCheckpoint() {
       if (!this.selectedTask) return;
-      const reward = Math.min(80, Math.max(30, Math.round(this.selectedTask.points / 3)));
       const progress = clamp(this.selectedTask.progress + 18);
       try {
         const saved = this.preview
@@ -783,8 +886,8 @@ export function registerWorkspace(Alpine) {
           : await updateTaskCheckpoint(this.selectedTask.id, progress, progress >= 100 ? "completed" : "in_progress", "Checkpoint completed from the task drawer.");
         this.data.tasks = this.data.tasks.map((task) => task.id === this.selectedTask.id ? { ...task, progress: saved.progress, status: saved.status } : task);
         this.selectedTask = { ...this.selectedTask, progress: saved.progress, status: saved.status };
-        this.bonusXp += reward;
-        this.showToast(this.t("actionDone"), `${this.t("actionDoneCopy")} +${reward} XP`);
+        if (!this.preview && saved.status === "completed") await this.refreshDashboard();
+        this.showToast(this.t("actionDone"), saved.status === "completed" ? "Task completed. Verified XP was recorded by the server." : "Checkpoint persisted. XP unlocks when the task is completed.");
       } catch (reason) {
         this.showToast("Checkpoint not saved", readableError(reason, "Unable to persist task progress."));
       }
@@ -1185,6 +1288,7 @@ export function registerWorkspace(Alpine) {
       this.showToast(this.t("exportSuccess"), this.t("demoNotice"));
     },
     async logout() {
+      globalThis.sessionStorage.removeItem(this.researchDraftStorageKey());
       await signOut();
       location.replace(pageUrl(import.meta.env.BASE_URL, "login.html"));
     },
