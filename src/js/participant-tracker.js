@@ -32,6 +32,7 @@ function blankForm(ownerId = "") {
 export function registerParticipantTracker(Alpine) {
   Alpine.data("participantTrackerPage", () => ({
     access: null,
+    embedded: false,
     ready: false,
     loading: true,
     saving: false,

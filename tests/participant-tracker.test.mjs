@@ -49,3 +49,19 @@ test("ships a protected tracker page, RPC contract, and Vite entry", async () =>
   assert.match(migration, /is_org_admin/);
   assert.match(vite, /participantTracker/);
 });
+
+test("embeds recruitment as a CRM tab without removing the Contacts view", async () => {
+  const [crmTemplate, workspace, workspaceTemplate, app] = await Promise.all([
+    readFile(new URL("../src/js/crm-template.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/js/workspace.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/js/workspace-template.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/js/app.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(crmTemplate, /crmTab==='contacts'/);
+  assert.match(crmTemplate, /crmTab==='recruitment'/);
+  assert.match(crmTemplate, /participantTrackerEmbedTemplate/);
+  assert.match(workspace, /requestedTab = searchParams\.get\("tab"\)/);
+  assert.match(workspace, /setCrmTab\(tab\)/);
+  assert.match(workspaceTemplate, /crmTemplateWithRecruitment/);
+  assert.match(app, /registerParticipantTracker\(Alpine\)/);
+});

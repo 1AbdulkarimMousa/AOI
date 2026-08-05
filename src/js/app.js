@@ -17,12 +17,14 @@ if (page === "login") {
 }
 
 if (page === "workspace") {
-  const [{ registerWorkspace }, { workspaceTemplate }] = await Promise.all([
+  const [{ registerWorkspace }, { workspaceTemplate }, { registerParticipantTracker }] = await Promise.all([
     import("./workspace.js"),
     import("./workspace-template.js"),
+    import("./participant-tracker.js"),
   ]);
   document.querySelector("#workspace-app").innerHTML = workspaceTemplate;
   registerWorkspace(Alpine);
+  registerParticipantTracker(Alpine);
 }
 
 if (page === "administration") {

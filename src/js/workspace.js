@@ -98,6 +98,7 @@ export function registerWorkspace(Alpine) {
     view: document.body.dataset.expectedRole === "intern" ? "today" : "overview",
     locale: localStorage.getItem("aoi-locale") === "zh-CN" ? "zh-CN" : "en",
     dark: localStorage.getItem("aoi-theme") === "dark",
+    crmTab: "contacts",
     mobileNav: false,
     sidebarCollapsed: false,
     commandOpen: false,
@@ -193,7 +194,9 @@ export function registerWorkspace(Alpine) {
        const searchParams = new URLSearchParams(location.search);
        const requestedView = searchParams.get("view");
        const requestedContactId = searchParams.get("contact");
-      if (this.navigation.some((item) => item.id === requestedView)) this.view = requestedView;
+       const requestedTab = searchParams.get("tab");
+       if (this.navigation.some((item) => item.id === requestedView)) this.view = requestedView;
+       if (requestedView === "crm" && requestedTab === "recruitment") this.crmTab = "recruitment";
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
         const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
@@ -236,6 +239,7 @@ export function registerWorkspace(Alpine) {
            if (contact) {
              this.selectCrmContact(contact);
              this.view = "crm";
+             this.crmTab = "contacts";
            }
          }
         await this.refreshDailyEod();
@@ -389,6 +393,14 @@ export function registerWorkspace(Alpine) {
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    setCrmTab(tab) {
+      this.crmTab = tab === "recruitment" ? "recruitment" : "contacts";
+      const url = new URL(location.href);
+      url.searchParams.set("view", "crm");
+      if (this.crmTab === "recruitment") url.searchParams.set("tab", "recruitment");
+      else url.searchParams.delete("tab");
+      window.history.replaceState({}, "", url);
     },
     toggleTheme() {
       this.dark = !this.dark;
