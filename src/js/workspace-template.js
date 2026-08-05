@@ -28,6 +28,7 @@ export const workspaceTemplate = String.raw`
           <template x-for="item in navigation" :key="item.id">
             <button :class="view===item.id && 'active'" :aria-label="item.id==='eod' ? 'End-of-Day Brief' : item.label" @click="setView(item.id)"><span class="nav-symbol" x-text="item.id.slice(0,1).toUpperCase()"></span><span x-text="item.label"></span><em x-show="item.id==='work'" x-text="data.tasks.length"></em><em x-show="item.id==='eod' && dailyEodAttention" class="nav-alert" x-text="dailyEodAttention"></em></button>
           </template>
+          <a :href="helpCenterUrl"><span class="nav-symbol">?</span><span>Help Center</span></a>
           <template x-if="access.role==='admin'">
             <div class="admin-nav-group"><span class="nav-label nav-label-admin">Admin</span><a :href="administrationUrl"><span class="nav-symbol">A</span><span>Administration</span></a></div>
           </template>
@@ -55,7 +56,9 @@ export const workspaceTemplate = String.raw`
         </header>
 
         <main class="content-area"><div class="content-frame">
-          <section x-show="error" class="panel error-panel"><div class="panel-heading"><div><span class="eyebrow">Connection issue</span><h2 x-text="error"></h2></div><div class="hero-actions"><button class="button button-secondary" @click="refreshDashboard()">Retry</button><button class="button button-primary" @click="usePreview()">Open labeled preview</button></div></div></section>
+           <section x-show="error" class="panel error-panel"><div class="panel-heading"><div><span class="eyebrow">Connection issue</span><h2 x-text="error"></h2></div><div class="hero-actions"><button class="button button-secondary" @click="refreshDashboard()">Retry</button><button class="button button-primary" @click="usePreview()">Open labeled preview</button></div></div></section>
+           <section x-show="showPasswordReminder" class="panel admin-notice warning" role="alert"><div><strong>Update your shared bootstrap password</strong><p>Your account is using the temporary AOI bootstrap password. Set a unique password as soon as possible.</p></div><div class="hero-actions"><button class="button button-primary" @click="passwordReminderOpen=true">Change password</button><button class="button button-secondary" @click="snoozePasswordReminder()" :disabled="passwordReminderSnoozing">Remind me in 7 days</button></div></section>
+           <div x-show="passwordReminderOpen" class="modal-backdrop" @mousedown.self="passwordReminderOpen=false"><section class="command-modal" role="dialog" aria-modal="true" aria-labelledby="password-change-title"><div class="drawer-header"><span class="eyebrow">Account security</span><button class="icon-button" @click="passwordReminderOpen=false" aria-label="Close">×</button></div><h2 id="password-change-title">Choose a unique password</h2><p>Use at least 12 characters. This change removes the reminder from your account.</p><form class="research-form" @submit.prevent="savePasswordChange()"><label><span>New password</span><input type="password" minlength="12" autocomplete="new-password" x-model="passwordChangeForm.password" required></label><label><span>Confirm new password</span><input type="password" minlength="12" autocomplete="new-password" x-model="passwordChangeForm.confirmation" required></label><button class="button button-primary" type="submit" :disabled="passwordChanging" x-text="passwordChanging?'Updating...':'Update password'"></button></form></section></div>
 
           <div x-show="view==='overview'">
             <section class="hero-grid">

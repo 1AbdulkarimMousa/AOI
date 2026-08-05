@@ -13,6 +13,8 @@ export default defineConfig({
         workspace: resolve(import.meta.dirname, "workspace.html"),
         interns: resolve(import.meta.dirname, "interns.html"),
         administration: resolve(import.meta.dirname, "administration.html"),
+        helpcenter: resolve(import.meta.dirname, "helpcenter.html"),
+        participantTracker: resolve(import.meta.dirname, "Participant_Recruitment_Tracker.html"),
       },
     },
   },

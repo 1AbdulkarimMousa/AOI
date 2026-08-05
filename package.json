@@ -9,6 +9,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "seed:participants": "node scripts/seed-participants.mjs",
+    "seed:wen": "node scripts/seed-intern.mjs",
     "seed:kayla": "node scripts/seed-kayla.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint src tests vite.config.js"

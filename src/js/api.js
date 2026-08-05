@@ -306,3 +306,63 @@ export async function completeOnboardingStep(stepKey) {
   if (error) throw new Error(error.message);
   return data;
 }
+
+export async function updateTaskCheckpoint(taskId, progress, status = null, note = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_update_task_checkpoint", {
+    p_task_id: taskId,
+    p_progress: progress,
+    p_status: status,
+    p_note: note,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function snoozePasswordReminder(until) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_snooze_password_reminder", { p_until: until });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadParticipantTracker() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_participant_tracker_snapshot");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function saveParticipantRecruitment(payload) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_upsert_participant_recruitment", { p_payload: payload });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadHelpCenter() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_help_center_snapshot");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function upsertHelpArticle(article, expectedVersion = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_help_center_upsert_article", {
+    p_article: article,
+    p_expected_version: expectedVersion,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function setHelpArticleStatus(articleId, status, expectedVersion = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_help_center_set_status", {
+    p_article_id: articleId,
+    p_status: status,
+    p_expected_version: expectedVersion,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function reorderHelpArticles(order) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_help_center_reorder", { p_order: order });
+  if (error) throw new Error(error.message);
+  return data;
+}

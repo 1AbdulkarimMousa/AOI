@@ -2732,6 +2732,7 @@ footer {
 .sidebar-collapsed .nav-label,
 .sidebar-collapsed .primary-nav > button > span,
 .sidebar-collapsed .primary-nav > button > em,
+.sidebar-collapsed .primary-nav > a > span,
 .sidebar-collapsed .ask-aoi > div,
 .sidebar-collapsed .user-card > div,
 .sidebar-collapsed .user-card > svg {
@@ -2763,7 +2764,8 @@ footer {
   padding: 8px;
 }
 
-.sidebar-collapsed .primary-nav > button {
+.sidebar-collapsed .primary-nav > button,
+.sidebar-collapsed .primary-nav > a {
   justify-content: center;
   padding: 0;
 }

@@ -94,6 +94,16 @@ npm run lint
 npm test
 ```
 
+## Wen Intern Seed
+
+The repeatable Wen seed imports her supplied planning work and EOD briefs without creating synthetic respondents or interview evidence. It also enables the requested organization-wide bootstrap-password reset, so run it only after confirming that `123456` is approved for every active AOI member:
+
+```bash
+AOI_RESET_ALL_PASSWORDS=1 npm run seed:wen
+```
+
+The script reads `SUPABASE_SERVICE_ROLE_KEY` from `.env.local`, never prints it, and marks active users for an in-app password-change reminder. Do not use a Supabase access token as the service-role key.
+
 ## Supabase
 
 Apply `supabase/migrations/` in order. Deploy the privileged user workflow with the Supabase CLI:

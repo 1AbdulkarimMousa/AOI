@@ -14,7 +14,7 @@ import {
 const root = new URL("../", import.meta.url);
 
 test("defines all five static application entry pages", async () => {
-  const entries = ["index.html", "login.html", "workspace.html", "interns.html", "administration.html"];
+  const entries = ["index.html", "login.html", "workspace.html", "interns.html", "administration.html", "helpcenter.html"];
   const missing = [];
 
   for (const entry of entries) {
@@ -108,12 +108,13 @@ test("scopes synthetic intern previews to the selected intern", () => {
 });
 
 test("wires every entry page to its Alpine controller", async () => {
-  const [landing, login, workspace, interns, administration] = await Promise.all([
+  const [landing, login, workspace, interns, administration, helpcenter] = await Promise.all([
     readFile(new URL("index.html", root), "utf8"),
     readFile(new URL("login.html", root), "utf8"),
     readFile(new URL("workspace.html", root), "utf8"),
     readFile(new URL("interns.html", root), "utf8"),
     readFile(new URL("administration.html", root), "utf8"),
+    readFile(new URL("helpcenter.html", root), "utf8"),
   ]);
 
   assert.match(landing, /data-page="landing"/);
@@ -128,6 +129,8 @@ test("wires every entry page to its Alpine controller", async () => {
   assert.match(interns, /data-expected-role="intern"/);
   assert.match(administration, /data-page="administration"/);
   assert.match(administration, /data-expected-role="admin"/);
+  assert.match(helpcenter, /data-page="helpcenter"/);
+  assert.match(helpcenter, /data-expected-role="admin"/);
 });
 
 test("keeps Supabase access behind authenticated RPCs and an Edge Function", async () => {

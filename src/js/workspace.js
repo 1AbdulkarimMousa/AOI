@@ -13,11 +13,13 @@ import {
   reviewResearchRecord as persistResearchReview,
   saveDailyEodBrief,
   saveResearchRecord as persistResearchRecord,
+  snoozePasswordReminder,
+  updateTaskCheckpoint,
   uploadResearchAttachment,
   upsertCandidate,
   upsertCrmContact,
 } from "./api.js";
-import { getExistingWorkspaceAccess, signOut } from "./auth.js";
+import { changePassword, getExistingWorkspaceAccess, signOut } from "./auth.js";
 import { clamp, csvCell, initials, pageUrl, readableError, routeForRole, scopePreviewDashboard } from "./core.js";
 import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
@@ -25,6 +27,7 @@ import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "
 import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, rewardForAction } from "./crm.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
+import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -84,6 +87,8 @@ export function registerWorkspace(Alpine) {
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     administrationUrl: pageUrl(import.meta.env.BASE_URL, "administration.html"),
+    helpCenterUrl: pageUrl(import.meta.env.BASE_URL, "helpcenter.html"),
+     participantTrackerUrl: pageUrl(import.meta.env.BASE_URL, "Participant_Recruitment_Tracker.html"),
     access: null,
     data: fallbackDashboard,
     ready: false,
@@ -157,6 +162,10 @@ export function registerWorkspace(Alpine) {
       dailyEodDirty: false,
       dailyEodDraftScope: "",
       dailyEodRefreshSequence: 0,
+      passwordReminderOpen: false,
+      passwordReminderSnoozing: false,
+      passwordChanging: false,
+      passwordChangeForm: { password: "", confirmation: "" },
       savingDailyEodAdmin: false,
       dailyEodReportFilters: { search: "", fromDate: "", toDate: "", authorRole: "", projectStatus: "", workflowStatus: "" },
       dailyEodReports: { items: [], total: 0, page: 1, pageSize: 25 },
@@ -181,7 +190,9 @@ export function registerWorkspace(Alpine) {
     async init() {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
       document.documentElement.lang = this.locale;
-      const requestedView = new URLSearchParams(location.search).get("view");
+       const searchParams = new URLSearchParams(location.search);
+       const requestedView = searchParams.get("view");
+       const requestedContactId = searchParams.get("contact");
       if (this.navigation.some((item) => item.id === requestedView)) this.view = requestedView;
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
@@ -218,8 +229,15 @@ export function registerWorkspace(Alpine) {
         this.access = access;
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
-        this.ready = true;
-        await this.refreshDashboard();
+         this.ready = true;
+         await this.refreshDashboard();
+         if (requestedContactId) {
+           const contact = this.crmContacts.find((item) => item.id === requestedContactId);
+           if (contact) {
+             this.selectCrmContact(contact);
+             this.view = "crm";
+           }
+         }
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
       } catch (reason) {
@@ -271,6 +289,13 @@ export function registerWorkspace(Alpine) {
     get dailyEodUserId() { return this.preview ? (this.expectedRole === "admin" ? "preview-admin" : "m1") : this.access?.userId; },
     get dailyEodLocked() { return this.dailyEodForm.workflowStatus === "completed"; },
     get dailyEodAttention() { return dailyEodAttentionCount(this.dailyEod, this.access?.role, this.dailyEodUserId); },
+    get showPasswordReminder() {
+      return !this.preview && shouldShowPasswordReminder({
+        seeded: Boolean(this.access?.passwordReminderSeededAt),
+        changedAt: this.access?.passwordChangedAt,
+        snoozedUntil: this.access?.passwordReminderSnoozedUntil,
+      });
+    },
     get filteredDailyEodTeam() { return filterDailyEodTeam(this.dailyEod.teamToday || [], this.dailyEodTeamFilter); },
     get dailyEodDueCopy() {
       return {
@@ -466,6 +491,7 @@ export function registerWorkspace(Alpine) {
         this.crmForm = { ...this.crmForm, ...updated };
         this.crmActionForm = { ...this.crmActionForm, summary: "" };
         this.crmActionNotice = { tone: "success", text: awarded ? `Action logged. +${awarded} XP.` : "Action logged. Today's reward for this action was already recorded." };
+        if (!this.preview) await completeOnboardingStep("log_crm_outcome");
       } catch (reason) {
         this.crmActionNotice = { tone: "error", text: readableError(reason, "Unable to log the CRM action.") };
       } finally {
@@ -683,14 +709,52 @@ export function registerWorkspace(Alpine) {
     recommendations() {
       return this.data.recommendations?.length ? this.data.recommendations : buildRecommendations({ ...this.data.outreachSummary, ...this.data.campaign, categories: this.data.categories || [] });
     },
-    completeCheckpoint() {
+    async completeCheckpoint() {
       if (!this.selectedTask) return;
       const reward = Math.min(80, Math.max(30, Math.round(this.selectedTask.points / 3)));
       const progress = clamp(this.selectedTask.progress + 18);
-      this.data.tasks = this.data.tasks.map((task) => task.id === this.selectedTask.id ? { ...task, progress } : task);
-      this.selectedTask.progress = progress;
-      this.bonusXp += reward;
-      this.showToast(this.t("actionDone"), `${this.t("actionDoneCopy")} +${reward} XP`);
+      try {
+        const saved = this.preview
+          ? { progress, status: progress >= 100 ? "completed" : "in_progress" }
+          : await updateTaskCheckpoint(this.selectedTask.id, progress, progress >= 100 ? "completed" : "in_progress", "Checkpoint completed from the task drawer.");
+        this.data.tasks = this.data.tasks.map((task) => task.id === this.selectedTask.id ? { ...task, progress: saved.progress, status: saved.status } : task);
+        this.selectedTask = { ...this.selectedTask, progress: saved.progress, status: saved.status };
+        this.bonusXp += reward;
+        this.showToast(this.t("actionDone"), `${this.t("actionDoneCopy")} +${reward} XP`);
+      } catch (reason) {
+        this.showToast("Checkpoint not saved", readableError(reason, "Unable to persist task progress."));
+      }
+    },
+    async snoozePasswordReminder() {
+      this.passwordReminderSnoozing = true;
+      try {
+        const until = snoozeUntil().toISOString();
+        if (!this.preview) await snoozePasswordReminder(until);
+        this.access = { ...this.access, passwordReminderSnoozedUntil: until };
+        this.showToast("Reminder snoozed", "We will remind you again in seven days.");
+      } catch (reason) {
+        this.showToast("Reminder not saved", readableError(reason, "Unable to snooze the reminder."));
+      } finally {
+        this.passwordReminderSnoozing = false;
+      }
+    },
+    async savePasswordChange() {
+      if (this.passwordChangeForm.password !== this.passwordChangeForm.confirmation) {
+        this.showToast("Passwords do not match", "Enter the same new password twice.");
+        return;
+      }
+      this.passwordChanging = true;
+      try {
+        await changePassword(this.passwordChangeForm.password);
+        this.access = { ...this.access, passwordChangedAt: new Date().toISOString(), passwordReminderSnoozedUntil: null };
+        this.passwordChangeForm = { password: "", confirmation: "" };
+        this.passwordReminderOpen = false;
+        this.showToast("Password updated", "Your account now has a unique password.");
+      } catch (reason) {
+        this.showToast("Password not updated", readableError(reason, "Unable to update your password."));
+      } finally {
+        this.passwordChanging = false;
+      }
     },
     setupDailyEodRefresh() {
       if (this.preview) return;
