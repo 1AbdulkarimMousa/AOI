@@ -54,15 +54,24 @@ test("searches bilingual article content and applies PMF filters", () => {
 test("wires the authenticated Help Center entry point and migration", async () => {
   const page = await readFile(new URL("helpcenter.html", root), "utf8");
   const config = await readFile(new URL("vite.config.js", root), "utf8");
+  const controller = await readFile(new URL("src/js/helpcenter.js", root), "utf8");
   const migrations = await readdir(new URL("supabase/migrations/", root));
-  const migrationName = migrations.find((name) => name.includes("help_center"));
-  assert.ok(migrationName, "Help Center migration must exist");
-  const migration = await readFile(new URL(`supabase/migrations/${migrationName}`, root), "utf8");
+  const migrationNames = migrations.filter((name) => name.includes("help_center"));
+  assert.ok(migrationNames.length, "Help Center migration must exist");
+  const originalMigration = await readFile(new URL("supabase/migrations/20260805062711_help_center_library.sql", root), "utf8");
+  const scopeMigration = await readFile(new URL("supabase/migrations/20260805143000_help_center_library.sql", root), "utf8");
+  const migration = `${originalMigration}\n${scopeMigration}`;
 
   assert.match(page, /data-page="helpcenter"/);
   assert.match(page, /data-expected-role="(admin|intern)"/);
   assert.match(config, /helpcenter:\s*resolve/);
-  assert.match(migration, /create table if not exists public\.help_center_articles/);
+  assert.match(originalMigration, /create table if not exists public\.help_center_articles/);
+  assert.doesNotMatch(originalMigration, /project_id/);
+  assert.match(scopeMigration, /add column if not exists project_id/);
+  assert.match(scopeMigration, /membership\.role = any\(help_center_articles\.audience\)/);
+  assert.match(scopeMigration, /v_role = any\(article\.audience\)/);
+  assert.match(controller, /saved\.status !== targetStatus[\s\S]*setHelpArticleStatus\(saved\.id, targetStatus, saved\.version\)/);
+  assert.match(controller, /catch \(statusReason\)[\s\S]*this\.editorDraft = structuredClone\(saved\)/);
   assert.match(migration, /enable row level security/);
   assert.match(migration, /revoke all on function public\.rpc_aoi_help_center_snapshot/);
   assert.match(migration, /grant execute on function public\.rpc_aoi_help_center_snapshot\(\) to authenticated/);

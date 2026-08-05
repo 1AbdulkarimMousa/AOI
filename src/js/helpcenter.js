@@ -229,6 +229,19 @@ export function registerHelpCenter(Alpine) {
           saved = normalizeArticle({ ...payload, id: payload.id || `preview-${Date.now()}`, version: Number(payload.version || 0) + 1, updatedAt: new Date().toISOString().slice(0, 10) });
         } else {
           saved = normalizeArticle(await upsertHelpArticle(payload, payload.version || null));
+          if (saved.status !== targetStatus) {
+            try {
+              saved = normalizeArticle(await setHelpArticleStatus(saved.id, targetStatus, saved.version));
+            } catch (statusReason) {
+              const exists = this.articles.some((article) => article.id === saved.id || article.slug === saved.slug);
+              this.articles = exists
+                ? this.articles.map((article) => article.id === saved.id || article.slug === saved.slug ? saved : article)
+                : [...this.articles, saved];
+              this.selectedArticle = saved;
+              this.editorDraft = structuredClone(saved);
+              throw new Error(`Content saved as ${saved.status}. ${readableError(statusReason, "Unable to change article status.")}`);
+            }
+          }
         }
         const exists = this.articles.some((article) => article.id === saved.id || article.slug === saved.slug);
         this.articles = exists
