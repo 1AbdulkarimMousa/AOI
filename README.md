@@ -39,6 +39,19 @@ The PMF workspace adds guided respondent, session, evidence, product-event, valu
 
 Consent documents, research sources, recordings, and oral images use four private Storage buckets. Recordings and oral images require the latest granted consent version. A later withdrawal restricts existing sensitive attachments. Retention is intentionally manual: use `retention_review_at`, legal hold, and attachment status to review, restrict, anonymize, or purge records rather than deleting them automatically.
 
+## Questionnaire And Survey Suite
+
+The Surveys workspace provides reusable bilingual templates, a schema-driven form builder, immutable version approval, secure public and invited distribution, response review, approved-only analysis, PMF mapping, and portable exports. Questionnaires support conditional logic, answer piping, validation, scoring, restricted calculations, deterministic randomization, matrices, rankings, consent, signatures, and private uploads.
+
+Respondents use the standalone `survey.html` runner. Public links contain opaque tokens in the URL fragment, while the database stores only token hashes. Anonymous users have no direct survey-table access; the `survey-public` Edge Function owns load, start, autosave, signed upload, and idempotent submit operations. Apply all survey migrations and deploy the function before enabling live links:
+
+```bash
+supabase db push --linked
+supabase functions deploy survey-public --no-verify-jwt
+```
+
+Operational analysis may include pending and flagged responses. Authoritative analysis and PMF promotion use approved responses only. AOI JSON preserves complete survey definitions with a checksum; CSV exports include formula-safe response data and a bilingual codebook.
+
 Email automation still requires selecting and configuring a provider adapter before production sending. Social platforms remain manual by design because unsupported automation and scraping create account and compliance risk.
 
 ## Internal CRM

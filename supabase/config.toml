@@ -2,3 +2,6 @@
 # compatible with Supabase's current signing-key model.
 [functions.admin-create-user]
 verify_jwt = false
+
+[functions.survey-public]
+verify_jwt = false

@@ -54,5 +54,14 @@ if (page === "participant-tracker") {
   registerParticipantTracker(Alpine);
 }
 
+if (page === "survey") {
+  const [{ registerSurveyRunner }, { surveyRunnerTemplate }] = await Promise.all([
+    import("./surveys/runner.js"),
+    import("./surveys/runner-template.js"),
+  ]);
+  document.querySelector("#survey-app").innerHTML = surveyRunnerTemplate;
+  registerSurveyRunner(Alpine);
+}
+
 Alpine.start();
 createIcons({ icons: { Sparkles } });

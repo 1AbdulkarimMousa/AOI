@@ -170,6 +170,125 @@ export async function createGateSnapshot(pmfLayer, decision, rationale) {
   return data;
 }
 
+export async function loadSurveyLibrary() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_survey_library");
+  if (error) throw new Error(error.message);
+  return data ?? { assets: [], reviewCount: 0 };
+}
+
+export async function createSurveyAsset({ title, assetType = "survey", definition = null, sourceAssetId = null }) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_create_survey", {
+    p_title: title,
+    p_asset_type: assetType,
+    p_definition: definition,
+    p_source_asset_id: sourceAssetId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadSurveyWorkspace(assetId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_survey_workspace", { p_asset_id: assetId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function saveSurveyDraft(assetId, definition, expectedRevision) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_save_survey_draft", {
+    p_asset_id: assetId,
+    p_definition: definition,
+    p_expected_revision: expectedRevision,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function submitSurveyVersion(assetId, expectedRevision) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_submit_survey_version", {
+    p_asset_id: assetId,
+    p_expected_revision: expectedRevision,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function reviewSurveyVersion(versionId, action, notes = "") {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_review_survey_version", {
+    p_version_id: versionId,
+    p_action: action,
+    p_notes: notes,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function publishSurveyVersion(versionId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_publish_survey", { p_version_id: versionId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function createSurveyLink(versionId, input = {}) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_create_survey_link", {
+    p_version_id: versionId,
+    p_label: input.label || "Primary link",
+    p_mode: input.mode || "public",
+    p_identity_mode: input.identityMode || "anonymous",
+    p_settings: input.settings || {},
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function createSurveyInvitation(linkId, recipientName, recipientEmail) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_create_survey_invitation", {
+    p_link_id: linkId,
+    p_recipient_name: recipientName,
+    p_recipient_email: recipientEmail,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function reviewSurveySubmission(submissionId, action, notes = "") {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_review_survey_submission", {
+    p_submission_id: submissionId,
+    p_action: action,
+    p_notes: notes,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function promoteSurveyAnswer(submissionId, questionId, metricCode, segmentCode) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_promote_survey_answer", {
+    p_submission_id: submissionId,
+    p_question_id: questionId,
+    p_metric_code: metricCode,
+    p_segment_code: segmentCode,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadSurveyAnalysis(assetId, population = "approved") {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_survey_analysis", {
+    p_asset_id: assetId,
+    p_population: population,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function invokeSurveyPublic(action, payload = {}) {
+  const { data, error } = await getSupabaseClient().functions.invoke("survey-public", {
+    body: { action, ...payload },
+  });
+  if (error) throw new Error(data?.error || error.message);
+  if (data?.error) throw new Error(data.error);
+  return data?.data;
+}
+
 export async function uploadResearchAttachment({ bucketId, file, projectId, organizationId, respondentId, sessionId = null }) {
   const client = getSupabaseClient();
   const { data: userData, error: userError } = await client.auth.getUser();

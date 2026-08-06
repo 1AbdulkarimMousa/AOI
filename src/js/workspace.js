@@ -30,6 +30,7 @@ import { buildTodayQueue, contactCompleteness, createContactDraft, resolveCrmWor
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
+import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -86,6 +87,7 @@ function downloadCsv(filename, rows) {
 
 export function registerWorkspace(Alpine) {
   Alpine.data("workspacePage", () => ({
+    ...createSurveyWorkspaceState(),
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     administrationUrl: pageUrl(import.meta.env.BASE_URL, "administration.html"),
@@ -191,7 +193,8 @@ export function registerWorkspace(Alpine) {
         { id: "eod", label: "End-of-Day Brief" },
         { id: "crm", label: "CRM" },
         { id: "work", label: "My work" },
-       { id: "collect", label: "Collect" },
+        { id: "collect", label: "Collect" },
+        { id: "surveys", label: "Surveys" },
        { id: "analyze", label: "Analyze" },
        { id: "reports", label: "Reports" },
        { id: "team", label: "Team momentum" },
@@ -234,6 +237,7 @@ export function registerWorkspace(Alpine) {
         this.preview = true;
         this.ready = true;
         this.loading = false;
+        if (this.view === "surveys") await this.openSurveyWorkspace();
         return;
       }
 
@@ -256,9 +260,10 @@ export function registerWorkspace(Alpine) {
         this.setupResearchDraftAutosave();
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
-          this.ready = true;
-          await this.refreshDashboard();
-          this.openRequestedCrmContact(requestedContactId);
+        this.ready = true;
+        await this.refreshDashboard();
+        if (this.view === "surveys") await this.openSurveyWorkspace();
+        this.openRequestedCrmContact(requestedContactId);
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
       } catch (reason) {
@@ -439,6 +444,7 @@ export function registerWorkspace(Alpine) {
       if (this.view === "crm") this.replaceCrmLocation();
       else this.replaceWorkspaceLocation(this.view);
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
+      if (this.view === "surveys") this.openSurveyWorkspace();
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
