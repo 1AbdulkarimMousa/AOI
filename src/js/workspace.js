@@ -21,11 +21,11 @@ import {
   upsertCrmContact,
 } from "./api.js";
 import { changePassword, getExistingWorkspaceAccess, signOut } from "./auth.js";
-import { clamp, csvCell, initials, pageUrl, readableError, routeForRole, scopePreviewDashboard } from "./core.js";
+import { clamp, csvCell, initials, isSafeHttpUrl, localDateValue, pageUrl, readableError, routeForRole, safeHttpUrl, scopePreviewDashboard } from "./core.js";
 import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
-import { buildLayerMatrices, buildPmfRecommendations, validateResearchRecord } from "./pmf.js";
+import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues, validateResearchRecord } from "./pmf.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, resolveCrmWorkspaceRoute, rewardForAction } from "./crm.js";
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
@@ -33,7 +33,7 @@ import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js"
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateValue();
 }
 
 function defaultResearchForms() {
@@ -113,14 +113,20 @@ export function registerWorkspace(Alpine) {
     query: "",
     taskFilter: "all",
     selectedTask: null,
+    taskCheckpointForm: { progress: 0, status: "assigned", note: "" },
+    taskCheckpointNotice: null,
+    savingTaskCheckpoint: false,
+    taskReturnFocus: null,
      selectedLayer: null,
-      selectedCandidate: null,
-      candidateEditorOpen: false,
+       selectedCandidate: null,
+       candidateEditorOpen: false,
+       candidateReturnFocus: null,
      candidateFilter: "all",
      candidateQuery: "",
       candidateNotice: null,
-      selectedCrmContact: null,
-      crmEditorOpen: false,
+       selectedCrmContact: null,
+       crmEditorOpen: false,
+       crmReturnFocus: null,
       crmQuery: "",
       crmFilter: "all",
       crmNotice: null,
@@ -176,7 +182,9 @@ export function registerWorkspace(Alpine) {
       dailyEodConflictLoaded: false,
       dailyEodDirty: false,
       dailyEodDraftScope: "",
-      dailyEodRefreshSequence: 0,
+       dailyEodRefreshSequence: 0,
+       dailyEodReportsSequence: 0,
+       routePopstateHandler: null,
       passwordReminderOpen: false,
       passwordReminderSnoozing: false,
       passwordChanging: false,
@@ -212,15 +220,16 @@ export function registerWorkspace(Alpine) {
        this.crmTab = route.crmTab;
        this.outreachSection = route.outreachSection;
        this.recruitmentMounted = route.crmTab === "recruitment";
-       if (requestedContactId) {
-         this.view = "crm";
-         this.crmTab = "contacts";
-         this.outreachSection = "pipeline";
-         this.replaceCrmLocation();
+        if (requestedContactId) {
+          this.view = "crm";
+          this.crmTab = "contacts";
+          this.outreachSection = "pipeline";
+          this.replaceCrmLocation(true);
        } else if (route.normalize) {
-         if (route.view === "crm") this.replaceCrmLocation();
-         else this.replaceWorkspaceLocation(route.view);
-       }
+          if (route.view === "crm") this.replaceCrmLocation(true);
+          else this.normalizeWorkspaceLocation(route.view);
+        }
+        this.setupRouteHistory();
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
         const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
@@ -238,6 +247,7 @@ export function registerWorkspace(Alpine) {
         this.ready = true;
         this.loading = false;
         if (this.view === "surveys") await this.openSurveyWorkspace();
+        if (this.view === "eod") await this.searchDailyEodReports(1);
         return;
       }
 
@@ -266,6 +276,7 @@ export function registerWorkspace(Alpine) {
         this.openRequestedCrmContact(requestedContactId);
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
+        if (this.view === "eod") await this.searchDailyEodReports(1);
       } catch (reason) {
         this.error = readableError(reason, "Unable to open the AOI workspace.");
         this.ready = true;
@@ -278,6 +289,7 @@ export function registerWorkspace(Alpine) {
       window.clearTimeout(this.dailyEodRefreshTimer);
       if (this.dailyEodVisibilityHandler) document.removeEventListener("visibilitychange", this.dailyEodVisibilityHandler);
       if (this.dailyEodFocusHandler) window.removeEventListener("focus", this.dailyEodFocusHandler);
+      if (this.routePopstateHandler) window.removeEventListener("popstate", this.routePopstateHandler);
     },
 
     t(key) { return translate(this.locale, key); },
@@ -308,6 +320,9 @@ export function registerWorkspace(Alpine) {
       if (this.taskFilter === "progress") return this.data.tasks.filter((task) => ["assigned", "in_progress"].includes(task.status));
       if (this.taskFilter === "submitted") return this.data.tasks.filter((task) => task.status === "submitted");
       return this.data.tasks;
+    },
+    get canUpdateSelectedTask() {
+      return this.access?.role === "intern" && this.selectedTask && !["completed", "submitted"].includes(this.selectedTask.status);
     },
     get focusTasks() { return this.data.tasks.filter((task) => ["submitted", "revision_requested", "blocked"].includes(task.status)).slice(0, 3); },
     get dailyEod() { return this.data.dailyEod || {}; },
@@ -375,7 +390,7 @@ export function registerWorkspace(Alpine) {
         total: candidates.length,
         ready: candidates.filter((candidate) => !["Research needed", "Unreachable"].includes(candidate.contactReadiness)).length,
         pmf: candidates.filter((candidate) => candidate.pmfCandidate).length,
-        followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= new Date().toISOString().slice(0, 10)).length,
+        followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= today()).length,
       };
     },
     get researchRespondents() { return this.data.collect?.respondents || this.data.respondents || []; },
@@ -427,19 +442,16 @@ export function registerWorkspace(Alpine) {
       return (this.data.definitions || []).find((item) => item.id === this.researchForms.observation.definitionId) || null;
     },
 
+    safeSourceUrl: safeHttpUrl,
+
     setView(view) {
       const route = resolveCrmWorkspaceRoute({ view });
-      if (route.normalize && route.view === "crm") {
+      if (route.view === "crm") {
         this.view = route.view;
         this.crmTab = route.crmTab;
         this.outreachSection = route.outreachSection;
       } else {
-        view = { research: "collect", pmf: "analyze" }[view] || view;
-        this.view = view;
-        if (view === "crm") {
-          this.crmTab = "contacts";
-          this.outreachSection = "pipeline";
-        }
+        this.view = route.view;
       }
       if (this.view === "crm") this.replaceCrmLocation();
       else this.replaceWorkspaceLocation(this.view);
@@ -448,6 +460,12 @@ export function registerWorkspace(Alpine) {
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    openPmfLayer(layer) {
+      if (!layer) return;
+      this.selectedLayer = layer;
+      this.matrixLayer = layer.code;
+      this.setView("analyze");
     },
     setCrmTab(tab) {
       const route = resolveCrmWorkspaceRoute({ view: "crm", tab, section: this.outreachSection });
@@ -465,14 +483,21 @@ export function registerWorkspace(Alpine) {
       this.replaceCrmLocation();
     },
     replaceWorkspaceLocation(view) {
+      this.writeWorkspaceLocation(view, false);
+    },
+    normalizeWorkspaceLocation(view) {
+      this.writeWorkspaceLocation(view, true);
+    },
+    writeWorkspaceLocation(view, replace = false) {
       const url = new URL(location.href);
       url.searchParams.set("view", view);
       url.searchParams.delete("tab");
       url.searchParams.delete("section");
       url.searchParams.delete("contact");
-      window.history.replaceState({}, "", url);
+      if (replace) window.history.replaceState({}, "", url);
+      else window.history.pushState({}, "", url);
     },
-    replaceCrmLocation() {
+    replaceCrmLocation(replace = false) {
       const url = new URL(location.href);
       url.searchParams.set("view", "crm");
       if (this.crmTab === "contacts") url.searchParams.delete("tab");
@@ -480,7 +505,22 @@ export function registerWorkspace(Alpine) {
       if (this.crmTab === "outreach") url.searchParams.set("section", this.outreachSection);
       else url.searchParams.delete("section");
       if (this.crmTab !== "contacts") url.searchParams.delete("contact");
-      window.history.replaceState({}, "", url);
+      if (replace) window.history.replaceState({}, "", url);
+      else window.history.pushState({}, "", url);
+    },
+    setupRouteHistory() {
+      this.routePopstateHandler ||= () => this.syncRouteFromLocation();
+      window.addEventListener("popstate", this.routePopstateHandler);
+    },
+    syncRouteFromLocation() {
+      const params = new URLSearchParams(location.search);
+      const route = resolveCrmWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), defaultView: this.expectedRole === "intern" ? "today" : "overview" });
+      this.view = this.navigation.some((item) => item.id === route.view) ? route.view : (this.expectedRole === "intern" ? "today" : "overview");
+      this.crmTab = route.crmTab;
+      this.outreachSection = route.outreachSection;
+      if (route.crmTab === "recruitment") this.recruitmentMounted = true;
+      if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports(1);
+      if (this.view === "surveys") this.openSurveyWorkspace();
     },
     toggleTheme() {
       this.dark = !this.dark;
@@ -504,35 +544,61 @@ export function registerWorkspace(Alpine) {
         this.showToast("Onboarding step", readableError(reason, "Unable to update onboarding right now."));
       }
     },
-    selectTask(task) { this.selectedTask = { ...task }; },
+    selectTask(task) {
+      if (!task) return;
+      if (!this.selectedTask) this.taskReturnFocus = document.activeElement;
+      this.selectedTask = { ...task };
+      this.taskCheckpointForm = {
+        progress: Number(task.progress) || 0,
+        status: task.status === "revision_requested" ? "resubmitted" : task.status,
+        note: "",
+      };
+      this.taskCheckpointNotice = null;
+      this.$nextTick(() => this.focusDialog(".task-drawer"));
+    },
+    openTaskCheckpoint() {
+      const task = this.data.tasks.find((item) => !["completed", "submitted"].includes(item.status));
+      if (task) this.selectTask(task);
+      else this.showToast("No open task", "There is no task available for a checkpoint update.");
+    },
+    closeTask() {
+      this.selectedTask = null;
+      this.taskCheckpointNotice = null;
+      this.$nextTick(() => this.taskReturnFocus?.focus?.());
+    },
     selectCandidate(candidate) {
+      if (!this.candidateEditorOpen) this.candidateReturnFocus = document.activeElement;
       this.selectedCandidate = { ...candidate };
       this.candidateForm = { ...this.candidateForm, ...candidate };
       this.candidateEditorOpen = true;
+      this.$nextTick(() => this.focusDialog(".candidate-drawer"));
     },
     closeCandidate() {
       this.selectedCandidate = null;
       this.candidateEditorOpen = false;
       this.candidateNotice = null;
+      this.$nextTick(() => this.candidateReturnFocus?.focus?.());
     },
     selectCrmContact(contact) {
+      if (!this.crmEditorOpen) this.crmReturnFocus = document.activeElement;
       this.selectedCrmContact = { ...contact };
       this.crmForm = { ...createContactDraft(this.access?.displayName || ""), ...contact };
       this.crmActionForm = { activityType: "follow_up", summary: "", nextAction: contact.nextAction || "", nextActionDue: contact.nextActionDue || "", lifecycle: contact.lifecycle || "" };
       this.crmNotice = null;
       this.crmActionNotice = null;
       this.crmEditorOpen = true;
+      this.$nextTick(() => this.focusDialog(".crm-drawer"));
     },
     openRequestedCrmContact(contactId) {
       if (!contactId) return;
       this.view = "crm";
       this.crmTab = "contacts";
       this.outreachSection = "pipeline";
-      this.replaceCrmLocation();
       const contact = this.crmContacts.find((item) => item.id === contactId);
       if (contact) this.selectCrmContact(contact);
     },
     startNewCrmContact() {
+      if (!this.crmEditorOpen) this.crmReturnFocus = document.activeElement;
       this.selectedCrmContact = null;
       this.crmForm = createContactDraft(this.access?.displayName || "");
       this.crmActionForm = { activityType: "follow_up", summary: "", nextAction: "", nextActionDue: "", lifecycle: "" };
@@ -540,17 +606,61 @@ export function registerWorkspace(Alpine) {
       this.crmActionNotice = null;
       this.crmEditorOpen = true;
       this.view = "crm";
+      this.$nextTick(() => this.focusDialog(".crm-drawer"));
     },
     closeCrmContact() {
       this.selectedCrmContact = null;
       this.crmEditorOpen = false;
       this.crmNotice = null;
       this.crmActionNotice = null;
+      this.$nextTick(() => this.crmReturnFocus?.focus?.());
+    },
+    focusDialog(selector) {
+      const dialog = document.querySelector(selector);
+      const initial = dialog?.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])');
+      (initial || dialog)?.focus?.();
+    },
+    trapDialogFocus(event, selector) {
+      const dialog = document.querySelector(selector);
+      if (!dialog) return;
+      const controls = [...dialog.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((element) => element.offsetParent !== null);
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    async refreshMutationState({ candidateId = null, crmContactId = null } = {}) {
+      if (this.preview) return;
+      await this.refreshDashboard();
+      if (candidateId) {
+        const candidate = this.candidates.find((item) => item.id === candidateId);
+        if (candidate) {
+          this.selectedCandidate = { ...candidate };
+          this.candidateForm = { ...this.candidateForm, ...candidate };
+        }
+      }
+      if (crmContactId) {
+        const contact = this.crmContacts.find((item) => item.id === crmContactId);
+        if (contact) {
+          this.selectedCrmContact = { ...contact };
+          this.crmForm = { ...this.crmForm, ...contact };
+        }
+      }
     },
     async saveCrmContact() {
       const completeness = contactCompleteness(this.crmForm);
       if (!this.crmForm.name.trim()) {
         this.crmNotice = { tone: "error", text: "Add a person or organization name before saving." };
+        return;
+      }
+      if (this.crmForm.sourceUrl && !isSafeHttpUrl(this.crmForm.sourceUrl)) {
+        this.crmNotice = { tone: "error", text: "Source URL must use http or https." };
         return;
       }
       const reward = rewardForAction("enrich", completeness);
@@ -568,6 +678,7 @@ export function registerWorkspace(Alpine) {
         this.selectedCrmContact = { ...saved, completeness };
         this.crmForm = { ...this.crmForm, ...saved };
         this.crmNotice = { tone: "success", text: awarded ? `Saved. +${awarded} XP for verified enrichment.` : "Saved. Today's enrichment reward was already recorded." };
+        await this.refreshMutationState({ crmContactId: saved.id });
       } catch (reason) {
         this.crmNotice = { tone: "error", text: readableError(reason, "Unable to save the CRM contact.") };
       } finally {
@@ -593,6 +704,7 @@ export function registerWorkspace(Alpine) {
         this.crmActionForm = { ...this.crmActionForm, summary: "" };
         this.crmActionNotice = { tone: "success", text: awarded ? `Action logged. +${awarded} XP.` : "Action logged. Today's reward for this action was already recorded." };
         if (!this.preview) await completeOnboardingStep("log_crm_outcome");
+        await this.refreshMutationState({ crmContactId: updated.id });
       } catch (reason) {
         this.crmActionNotice = { tone: "error", text: readableError(reason, "Unable to log the CRM action.") };
       } finally {
@@ -600,9 +712,13 @@ export function registerWorkspace(Alpine) {
       }
     },
     async saveCandidate() {
-      let candidate = { ...this.candidateForm, id: this.selectedCandidate?.id || null, externalId: this.selectedCandidate?.externalId || "", priorityScore: this.selectedCandidate?.priorityScore || 50, priorityBand: this.selectedCandidate?.priorityBand || "Medium", interestLevel: this.selectedCandidate?.interestLevel || "Unknown", lastUpdated: new Date().toISOString().slice(0, 10) };
+      let candidate = { ...this.candidateForm, id: this.selectedCandidate?.id || null, externalId: this.selectedCandidate?.externalId || "", priorityScore: this.selectedCandidate?.priorityScore || 50, priorityBand: this.selectedCandidate?.priorityBand || "Medium", interestLevel: this.selectedCandidate?.interestLevel || "Unknown", lastUpdated: today() };
       if (!candidate.name.trim()) {
         this.candidateNotice = { tone: "error", text: "Add a creator or organization name before saving." };
+        return;
+      }
+      if (candidate.sourceUrl && !isSafeHttpUrl(candidate.sourceUrl)) {
+        this.candidateNotice = { tone: "error", text: "Source URL must use http or https." };
         return;
       }
       if (!this.preview) {
@@ -618,13 +734,16 @@ export function registerWorkspace(Alpine) {
       this.selectedCandidate = { ...candidate };
       this.candidateNotice = { tone: "success", text: "Candidate record saved to this workspace view." };
       this.data.outreachSummary = { ...this.data.outreachSummary, totalCandidates: this.candidates.length };
+      await this.refreshMutationState({ candidateId: candidate.id });
     },
     startNewCandidate() {
       this.setOutreachSection("pipeline");
+      if (!this.candidateEditorOpen) this.candidateReturnFocus = document.activeElement;
       this.selectedCandidate = null;
       this.candidateEditorOpen = true;
       this.candidateForm = { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: this.access?.displayName || "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" };
       this.candidateNotice = null;
+      this.$nextTick(() => this.focusDialog(".candidate-drawer"));
     },
     async importFile(event) {
       const file = event.target.files?.[0];
@@ -684,9 +803,10 @@ export function registerWorkspace(Alpine) {
         }
       }
       this.data.outreachEvents = [{ id: `outreach-${Date.now()}`, candidateId: this.selectedCandidate.id, ...this.outreachForm, occurredAt: new Date().toISOString(), actorName: this.access?.displayName || "AOI" }, ...(this.data.outreachEvents || [])];
-      this.candidates.splice(this.candidates.findIndex((item) => item.id === this.selectedCandidate.id), 1, { ...this.selectedCandidate, outreachStatus: this.outreachForm.status === "Sent" ? "Sent" : this.selectedCandidate.outreachStatus, lastUpdated: new Date().toISOString().slice(0, 10) });
+      this.candidates.splice(this.candidates.findIndex((item) => item.id === this.selectedCandidate.id), 1, { ...this.selectedCandidate, outreachStatus: this.outreachForm.status === "Sent" ? "Sent" : this.selectedCandidate.outreachStatus, lastUpdated: today() });
       this.outreachForm = { channel: "Email", kind: "Initial", status: "Drafted", summary: "" };
       this.candidateNotice = { tone: "success", text: "Outreach activity logged with an auditable timestamp." };
+      await this.refreshMutationState({ candidateId: this.selectedCandidate.id });
     },
     async addEvidence() {
       if (!this.selectedCandidate || !this.evidenceForm.title.trim()) return;
@@ -698,12 +818,25 @@ export function registerWorkspace(Alpine) {
           return;
         }
       }
-      this.data.evidenceRecords = [{ id: `evidence-${Date.now()}`, candidateId: this.selectedCandidate.id, ...this.evidenceForm, recordedBy: this.access?.displayName || "AOI", recordedAt: new Date().toISOString().slice(0, 10) }, ...(this.data.evidenceRecords || [])];
+      this.data.evidenceRecords = [{ id: `evidence-${Date.now()}`, candidateId: this.selectedCandidate.id, ...this.evidenceForm, recordedBy: this.access?.displayName || "AOI", recordedAt: today() }, ...(this.data.evidenceRecords || [])];
       this.evidenceForm = { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" };
       this.candidateNotice = { tone: "success", text: "Evidence record added. Keep consent and limitations explicit." };
+      await this.refreshMutationState({ candidateId: this.selectedCandidate.id });
     },
     respondentSegmentCode(respondentId) {
       return this.researchRespondents.find((item) => item.id === respondentId)?.segmentCode || "families";
+    },
+    researchSessionsFor(recordType) {
+      const form = this.researchForms[recordType] || {};
+      return (this.data.sessions || []).filter((session) => !form.respondentId || session.respondentId === form.respondentId);
+    },
+    syncResearchSession(recordType) {
+      const form = this.researchForms[recordType];
+      if (!form?.sessionId) return;
+      if (!this.researchSessionsFor(recordType).some((session) => session.id === form.sessionId)) form.sessionId = "";
+    },
+    syncObservationDefinition() {
+      this.researchForms.observation = normalizeObservationValues(this.researchForms.observation, this.selectedMetricDefinition);
     },
     startCollectionRecord(recordType = "respondent", respondentId = "") {
       this.collectionType = recordType;
@@ -780,11 +913,19 @@ export function registerWorkspace(Alpine) {
     },
     async saveResearchRecord(recordType, workflowStatus) {
       const form = this.researchForms[recordType];
-      const payload = { ...form, workflowStatus };
+      let payload = { ...form, workflowStatus };
+      if (recordType === "observation") {
+        payload = { ...normalizeObservationValues(payload, this.selectedMetricDefinition), workflowStatus };
+        this.researchForms.observation = { ...payload };
+        delete this.researchForms.observation.workflowStatus;
+      }
       if (["session", "product_event", "value_exchange"].includes(recordType)) {
         payload.segmentCode = this.respondentSegmentCode(form.respondentId);
       }
-      const errors = validateResearchRecord(recordType, payload, workflowStatus);
+      const errors = validateResearchRecord(recordType, payload, workflowStatus, {
+        definitions: this.data.definitions || [],
+        sessions: this.data.sessions || [],
+      });
       if (errors.length) {
         this.researchNotice = { tone: "error", text: errors.join(" ") };
         return;
@@ -884,18 +1025,28 @@ export function registerWorkspace(Alpine) {
       return this.data.recommendations?.length ? this.data.recommendations : buildRecommendations({ ...this.data.outreachSummary, ...this.data.campaign, categories: this.data.categories || [] });
     },
     async completeCheckpoint() {
-      if (!this.selectedTask) return;
-      const progress = clamp(this.selectedTask.progress + 18);
+      if (!this.canUpdateSelectedTask || this.savingTaskCheckpoint) return;
+      const progress = clamp(this.taskCheckpointForm.progress);
+      const note = this.taskCheckpointForm.note.trim();
+      if (!note) {
+        this.taskCheckpointNotice = { tone: "error", text: "Add a checkpoint note describing the evidence, blocker, or completed work." };
+        return;
+      }
+      this.savingTaskCheckpoint = true;
+      this.taskCheckpointNotice = null;
       try {
         const saved = this.preview
-          ? { progress, status: progress >= 100 ? "completed" : "in_progress" }
-          : await updateTaskCheckpoint(this.selectedTask.id, progress, progress >= 100 ? "completed" : "in_progress", "Checkpoint completed from the task drawer.");
+          ? { progress, status: this.taskCheckpointForm.status }
+          : await updateTaskCheckpoint(this.selectedTask.id, progress, this.taskCheckpointForm.status, note);
         this.data.tasks = this.data.tasks.map((task) => task.id === this.selectedTask.id ? { ...task, progress: saved.progress, status: saved.status } : task);
         this.selectedTask = { ...this.selectedTask, progress: saved.progress, status: saved.status };
-        if (!this.preview && saved.status === "completed") await this.refreshDashboard();
-        this.showToast(this.t("actionDone"), saved.status === "completed" ? "Task completed. Verified XP was recorded by the server." : "Checkpoint persisted. XP unlocks when the task is completed.");
+        this.taskCheckpointForm = { progress: saved.progress, status: saved.status, note: "" };
+        if (!this.preview) await this.refreshDashboard();
+        this.taskCheckpointNotice = { tone: "success", text: saved.status === "completed" ? "Task completed. Verified XP was recorded by the server." : "Checkpoint saved with an auditable note." };
       } catch (reason) {
-        this.showToast("Checkpoint not saved", readableError(reason, "Unable to persist task progress."));
+        this.taskCheckpointNotice = { tone: "error", text: readableError(reason, "Unable to persist task progress.") };
+      } finally {
+        this.savingTaskCheckpoint = false;
       }
     },
     async snoozePasswordReminder() {
@@ -989,6 +1140,7 @@ export function registerWorkspace(Alpine) {
     async saveDailyEod(workflowStatus) {
       const payload = {
         ...this.dailyEodForm,
+        evidenceLinks: (this.dailyEodForm.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim()),
         workflowStatus,
         scopeDate: this.dailyEod.serverDate,
         scopeProjectId: this.dailyEod.projectId || this.dailyEod.myBrief?.projectId,
@@ -1049,10 +1201,14 @@ export function registerWorkspace(Alpine) {
     },
     async reloadDailyEodConflict() {
       if (!this.dailyEodConflictDraft) return;
-      const loaded = await this.refreshDailyEod({ throwOnError: true });
-      if (!loaded) return;
-      this.dailyEodConflictLoaded = true;
-      this.dailyEodNotice = { tone: "warning", text: "The latest saved brief is loaded. Review it, or restore your unsaved draft for comparison." };
+      try {
+        const loaded = await this.refreshDailyEod({ throwOnError: true });
+        if (!loaded) return;
+        this.dailyEodConflictLoaded = true;
+        this.dailyEodNotice = { tone: "warning", text: "The latest saved brief is loaded. Review it, or restore your unsaved draft for comparison." };
+      } catch (reason) {
+        this.dailyEodNotice = { tone: "error", text: readableError(reason, "Unable to reload the latest EOD brief.") };
+      }
     },
     restoreDailyEodConflictDraft() {
       if (!this.dailyEodConflictDraft || !this.dailyEodConflictLoaded) return;
@@ -1157,7 +1313,10 @@ export function registerWorkspace(Alpine) {
         this.dailyEodAdminNotice = { tone: "error", text: "Add an edit or completion reason with at least three characters." };
         return;
       }
-      const payload = { ...this.dailyEodAdminForm };
+      const payload = {
+        ...this.dailyEodAdminForm,
+        evidenceLinks: (this.dailyEodAdminForm.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim()),
+      };
       if (["submitted", "completed"].includes(this.selectedDailyEod.workflowStatus) || action === "complete") {
         const errors = validateDailyEodBrief(payload);
         if (errors.length) {
@@ -1191,9 +1350,11 @@ export function registerWorkspace(Alpine) {
       }
     },
     async searchDailyEodReports(page = 1) {
+      const sequence = ++this.dailyEodReportsSequence;
       this.loadingDailyEodReports = true;
       this.dailyEodReportError = "";
       try {
+        let reports;
         if (this.preview) {
           const filters = this.dailyEodReportFilters;
           const query = filters.search.trim().toLowerCase();
@@ -1207,15 +1368,20 @@ export function registerWorkspace(Alpine) {
               && (!filters.workflowStatus || item.workflowStatus === filters.workflowStatus);
           });
           if (this.access?.role !== "admin") items = items.filter((item) => item.authorId === this.dailyEodUserId);
-          this.dailyEodReports = { items, total: items.length, page: 1, pageSize: 25 };
+          reports = { items, total: items.length, page: 1, pageSize: 25 };
         } else {
-          this.dailyEodReports = await loadDailyEodReports(this.dailyEodReportFilters, page, 25);
+          reports = await loadDailyEodReports(this.dailyEodReportFilters, page, 25);
         }
+        if (sequence !== this.dailyEodReportsSequence) return false;
+        this.dailyEodReports = reports;
         this.dailyEodReportsLoaded = true;
+        return true;
       } catch (reason) {
+        if (sequence !== this.dailyEodReportsSequence) return false;
         this.dailyEodReportError = readableError(reason, "Unable to load EOD reports.");
+        return false;
       } finally {
-        this.loadingDailyEodReports = false;
+        if (sequence === this.dailyEodReportsSequence) this.loadingDailyEodReports = false;
       }
     },
     async refreshDailyEod({ preserveDraft = false, throwOnError = false } = {}) {
@@ -1240,8 +1406,9 @@ export function registerWorkspace(Alpine) {
       this.error = "";
       try {
          const liveData = await loadDashboard();
-         this.data = {
-           ...liveData,
+             this.data = {
+               ...liveData,
+               dailyEod: liveData.dailyEod || this.data.dailyEod,
            campaign: liveData.campaign || fallbackDashboard.campaign,
            outreachSummary: liveData.outreachSummary || { totalCandidates: 0, contactReady: 0, contacted: 0, responses: 0, interested: 0, confirmed: 0, pmfCandidates: 0, researchNeeded: 0 },
            categories: liveData.categories || [],

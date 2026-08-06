@@ -77,3 +77,52 @@ test("wires the authenticated Help Center entry point and migration", async () =
   assert.match(migration, /grant execute on function public\.rpc_aoi_help_center_snapshot\(\) to authenticated/);
   assert.match(migration, /is_org_admin/);
 });
+
+test("keeps article selection synchronized with browser history", async () => {
+  const [controller, template] = await Promise.all([
+    readFile(new URL("src/js/helpcenter.js", root), "utf8"),
+    readFile(new URL("src/js/helpcenter-template.js", root), "utf8"),
+  ]);
+
+  assert.match(controller, /window\.history\.pushState/);
+  assert.match(controller, /addEventListener\("popstate"/);
+  assert.match(controller, /closeArticle/);
+  assert.match(controller, /searchParams\.delete\("article"\)/);
+  assert.match(template, /@click="closeArticle\(\)"/);
+});
+
+test("supports global search shortcuts and every accepted reader block", async () => {
+  const template = await readFile(new URL("src/js/helpcenter-template.js", root), "utf8");
+
+  assert.match(template, /@keydown\.window\.k="handleSearchShortcut\(\$event\)"/);
+  assert.match(template, /block\.type==='faq'/);
+  assert.match(template, /block\.type==='related_article'/);
+  assert.match(template, /selectArticleBySlug\(slug\)/);
+});
+
+test("reports publication success after closing and renders accurate featured status", async () => {
+  const [controller, template] = await Promise.all([
+    readFile(new URL("src/js/helpcenter.js", root), "utf8"),
+    readFile(new URL("src/js/helpcenter-template.js", root), "utf8"),
+  ]);
+
+  assert.match(controller, /publicationNotice/);
+  assert.match(controller, /Article published\./);
+  assert.match(template, /x-show="publicationNotice"[^>]*role="status"/);
+  assert.match(template, /:class="statusClass\(article\.status\)" x-text="article\.status"/);
+});
+
+test("gives Help editor tabs and modal complete keyboard semantics", async () => {
+  const [controller, template] = await Promise.all([
+    readFile(new URL("src/js/helpcenter.js", root), "utf8"),
+    readFile(new URL("src/js/helpcenter-template.js", root), "utf8"),
+  ]);
+
+  assert.match(template, /role="tablist" aria-label="Help Center categories"/);
+  assert.match(template, /role="tab"[^>]*:aria-selected="category==='all'"/);
+  assert.match(template, /:inert="editorOpen"/);
+  assert.match(template, /@keydown\.window\.tab="trapEditorFocus\(\$event\)"/);
+  assert.match(controller, /editorReturnFocus/);
+  assert.match(controller, /trapEditorFocus/);
+  assert.match(controller, /returnFocus\?\.focus/);
+});

@@ -10,6 +10,7 @@ import {
   deterministicOrder,
   evaluateVisibility,
   renderPipedText,
+  surveyQuestions,
   validateSurveyAnswers,
   validateSurveyDefinition,
 } from "../src/js/surveys/domain.js";
@@ -66,6 +67,92 @@ test("creates a bilingual versioned definition with a stable first section", () 
   assert.ok(draft.blocks[0].id);
 });
 
+test("creates an English-only definition when requested", () => {
+  const draft = createSurveyDefinition({ locales: ["en"] });
+
+  assert.deepEqual(draft.locales, ["en"]);
+  assert.equal(draft.defaultLocale, "en");
+  assert.equal(validateSurveyDefinition(draft).valid, true);
+});
+
+test("validates definitions against their configured locales and ignores content blocks as answers", () => {
+  const definition = createSurveyDefinition();
+  definition.locales = ["en"];
+  definition.title.zh = "";
+  definition.blocks[0].title.zh = "";
+  definition.blocks[0].blocks.push({
+    id: "concept-copy",
+    type: "content",
+    title: { en: "Please read", zh: "" },
+    description: { en: "A product concept.", zh: "" },
+  });
+  const question = createSurveyQuestion("short_text");
+  question.title.zh = "";
+  definition.blocks[0].blocks.push(question);
+
+  assert.equal(validateSurveyDefinition(definition).valid, true);
+  assert.deepEqual(surveyQuestions(definition).map((item) => item.id), [question.id]);
+});
+
+test("enforces choice limits, exclusive options, and required attached Other text", () => {
+  const definition = publishedDefinition();
+  const choices = {
+    ...createSurveyQuestion("multiple_choice"),
+    id: "confidence",
+    title: { en: "What builds confidence?", zh: "什么能增强信心？" },
+    required: true,
+    options: [
+      { id: "dentist", label: { en: "Dentist", zh: "牙医" }, score: 0 },
+      { id: "reviews", label: { en: "Reviews", zh: "评价" }, score: 0 },
+      { id: "none", label: { en: "None", zh: "无" }, score: 0 },
+      { id: "other", label: { en: "Other", zh: "其他" }, score: 0 },
+    ],
+    validation: { maxSelections: 2, exclusiveOptionIds: ["none"] },
+    other: { optionId: "other", required: true, label: { en: "Please specify", zh: "请说明" } },
+  };
+  definition.blocks[0].blocks.push(choices);
+
+  assert.match(validateSurveyAnswers(definition, { need: "no", confidence: ["dentist", "reviews", "other"] }).errors.confidence, /up to 2/);
+  assert.match(validateSurveyAnswers(definition, { need: "no", confidence: ["none", "reviews"] }).errors.confidence, /cannot be combined/);
+  assert.match(validateSurveyAnswers(definition, { need: "no", confidence: { values: ["other"], otherText: "" } }).errors.confidence, /specify/i);
+  assert.equal(validateSurveyAnswers(definition, { need: "no", confidence: { values: ["other"], otherText: "Clinical proof" } }).valid, true);
+});
+
+test("validates matrices, rankings, uploads, and managed fields with client-server parity", () => {
+  const definition = publishedDefinition();
+  definition.blocks[0].blocks.push(
+    { ...createSurveyQuestion("matrix_single"), id: "matrix", required: true, rows: [{ id: "r1", label: { en: "Row", zh: "行" } }], columns: [{ id: "c1", label: { en: "One", zh: "一" } }] },
+    { ...createSurveyQuestion("ranking"), id: "rank", required: true, options: [{ id: "a", label: { en: "A", zh: "甲" } }, { id: "b", label: { en: "B", zh: "乙" } }] },
+    { ...createSurveyQuestion("upload"), id: "file", required: true },
+    { ...createSurveyQuestion("hidden"), id: "managed" },
+  );
+
+  const invalid = validateSurveyAnswers(definition, {
+    need: "no", matrix: { r1: "missing" }, rank: ["a", "a"],
+    file: { path: "another/file.pdf", name: "file.pdf" }, managed: "forged",
+  }, { submissionId: "submission-1", rejectUnknown: true });
+
+  for (const field of ["matrix", "rank", "file", "managed"]) assert.ok(invalid.errors[field], field);
+  assert.equal(validateSurveyAnswers(definition, {
+    need: "no", matrix: { r1: "c1" }, rank: ["a", "b"],
+    file: { path: "submission-1/file/file.pdf", name: "file.pdf" },
+  }, { submissionId: "submission-1", rejectUnknown: true }).valid, true);
+});
+
+test("rejects malformed matrix definitions and unsafe completion settings", () => {
+  const definition = publishedDefinition();
+  const matrix = { ...createSurveyQuestion("matrix_multiple"), id: "matrix" };
+  matrix.rows[1].id = matrix.rows[0].id;
+  matrix.columns[0].label.zh = "";
+  definition.blocks[0].blocks.push(matrix);
+  definition.defaultLocale = "fr";
+  definition.settings.showProgress = "yes";
+  definition.completion.redirectUrl = "javascript:alert(1)";
+
+  const codes = new Set(validateSurveyDefinition(definition).errors.map((error) => error.code));
+  for (const code of ["DEFAULT_LOCALE_INVALID", "SURVEY_SETTING_INVALID", "COMPLETION_REDIRECT_INVALID", "MATRIX_ROW_DUPLICATE", "TRANSLATION_REQUIRED"]) assert.equal(codes.has(code), true, code);
+});
+
 test("creates complete defaults for specialized question types", () => {
   const yesNo = createSurveyQuestion("yes_no");
   const matrix = createSurveyQuestion("matrix_single");
@@ -75,6 +162,15 @@ test("creates complete defaults for specialized question types", () => {
   assert.equal(matrix.rows.length, 2);
   assert.equal(matrix.columns.length, 2);
   assert.deepEqual(nps.validation, { min: 0, max: 10 });
+});
+
+test("creates editable non-answer content blocks", () => {
+  const content = createSurveyQuestion("content");
+
+  assert.equal(content.type, "content");
+  assert.ok(content.id.startsWith("content-"));
+  assert.deepEqual(content.title, { en: "Instruction", zh: "说明" });
+  assert.equal(Object.hasOwn(content, "required"), false);
 });
 
 test("clones reactive definition proxies without leaking references", () => {
@@ -211,4 +307,15 @@ test("exports formula-safe wide response CSV with a bilingual codebook", () => {
   assert.match(exported.wide, /"'=2\+2"/);
   assert.match(exported.codebook, /Do you have this need\?/);
   assert.match(exported.codebook, /您有这个需求吗？/);
+});
+
+test("excludes direct identifiers from standard response and codebook exports", () => {
+  const definition = publishedDefinition();
+  definition.blocks[0].blocks[0].privacy = { classification: "direct_identifier" };
+
+  const exported = buildResponseCsv(definition, [{ submissionId: "r1", status: "approved", answers: { need: "yes", intensity: 4 }, identifiers: { need: "Private" } }]);
+
+  assert.doesNotMatch(exported.wide.split("\r\n")[0], /need/);
+  assert.doesNotMatch(exported.codebook, /need/);
+  assert.match(exported.wide, /intensity/);
 });

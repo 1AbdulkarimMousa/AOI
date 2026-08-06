@@ -101,3 +101,60 @@ test("hardens public sessions, revisions, invitations, and idempotency", async (
   assert.match(sql, /jsonb_build_object\('accepted',true,'locale',v_submission\.locale,'versionId',v_submission\.version_id/i);
   assert.match(sql, /v_asset\.lifecycle_status<>'published'/i);
 });
+
+test("separates direct identifiers and excludes inactive answers from review payloads", async () => {
+  const sql = await currentSchema();
+
+  assert.match(sql, /create table(?: if not exists)? public\.survey_response_identifiers\b/i);
+  assert.match(sql, /alter table public\.survey_response_identifiers enable row level security/i);
+  assert.match(sql, /question#>>'\{privacy,classification\}'='direct_identifier'/i);
+  assert.match(sql, /answer\.is_active/i);
+  assert.match(sql, /'identifiers'/i);
+});
+
+test("preserves survey lifecycle controls and direct-identifier audit history", async () => {
+  const sql = await currentSchema();
+
+  assert.match(sql, /asset\.lifecycle_status='published'/i);
+  assert.match(sql, /version\.version_status in \('published','retired'\)/i);
+  assert.match(sql, /'randomizeSections',false/i);
+  assert.match(sql, /'survey_version'.*'published'/is);
+  assert.match(sql, /retain the original row as an inactive audit tombstone/i);
+  assert.doesNotMatch(sql, /delete from public\.survey_answers answer\s+where answer\.id in \(/i);
+});
+
+test("keeps pinned links usable and returns immutable response definitions", async () => {
+  const sql = await currentSchema();
+
+  assert.match(sql, /version_status in \('published','retired'\)/i);
+  assert.match(sql, /'versionDefinition',version\.definition/i);
+  assert.match(sql, /'definition',version\.definition/i);
+  assert.match(sql, /update public\.survey_versions set version_status='retired'/i);
+  assert.match(sql, /answer\.is_active/i);
+  assert.match(sql, /identifier\.is_active/i);
+});
+
+test("validates complete survey settings and immutable analysis metadata", async () => {
+  const sql = await currentSchema();
+
+  for (const code of ["DEFAULT_LOCALE_INVALID", "SURVEY_SETTING_INVALID", "COMPLETION_REDIRECT_INVALID", "MATRIX_ROW_INVALID", "MATRIX_COLUMN_INVALID"]) {
+    assert.match(sql, new RegExp(code), code);
+  }
+  assert.match(sql, /'versionId',response\.version_id/i);
+  assert.match(sql, /'questionType',question#>>'\{type\}'/i);
+});
+
+test("keeps questionnaire validation extensions in the effective final validator", async () => {
+  const names = (await readdir(migrationsUrl)).filter((name) => name.endsWith("_survey_questionnaire_validation_parity.sql")).sort();
+  assert.equal(names.length, 1);
+  const sql = await readFile(new URL(names[0], migrationsUrl), "utf8");
+
+  for (const code of ["OTHER_OPTION_INVALID", "EXCLUSIVE_OPTION_INVALID", "SELECTION_RANGE_INVALID", "QUESTION_PRIVACY_INVALID"]) {
+    assert.match(sql, new RegExp(code), code);
+  }
+  assert.match(sql, /create or replace function private\.validate_aoi_survey_definition/i);
+  assert.match(sql, /update public\.survey_answers answer[\s\S]*set is_active=false/i);
+  assert.doesNotMatch(sql, /delete from public\.survey_answers/i);
+  assert.match(sql, /question#>>'\{privacy,classification\}' is distinct from 'direct_identifier'/i);
+  assert.match(sql, /auth\.uid\(\) is not distinct from v_asset\.assigned_to/i);
+});

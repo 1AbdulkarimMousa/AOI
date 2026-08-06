@@ -11,9 +11,11 @@
     "preview": "vite preview",
     "seed:participants": "node scripts/seed-participants.mjs",
     "seed:wen": "node scripts/seed-intern.mjs",
+    "seed:wen-survey": "node scripts/seed-wen-consumer-survey.mjs",
     "seed:kayla": "node scripts/seed-kayla.mjs",
     "seed:mike-outreach": "node scripts/seed-mike-outreach.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "test:e2e": "GITHUB_ACTIONS=1 npm run build && playwright test",
     "lint": "eslint src tests vite.config.js"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "read-excel-file": "^6.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.2.1",
     "eslint": "9.39.4",
     "tailwindcss": "4.2.1",

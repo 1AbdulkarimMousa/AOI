@@ -18,21 +18,36 @@ function questions(definition) {
 }
 
 function hasAnswer(value) {
+  if (value && typeof value === "object" && (Object.hasOwn(value, "value") || Object.hasOwn(value, "values"))) return choiceValues(value).length > 0;
   return value !== undefined && value !== null && value !== "" && (!Array.isArray(value) || value.length > 0);
+}
+
+function choiceValues(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.values)) return value.values;
+    return value.value === undefined || value.value === "" ? [] : [value.value];
+  }
+  return value === undefined || value === null || value === "" ? [] : [value];
+}
+
+function otherText(value) {
+  return value && typeof value === "object" ? String(value.otherText || "") : "";
 }
 
 function conditionMatches(condition, answers) {
   const value = answers[condition.questionId];
+  const comparable = value && typeof value === "object" && (Object.hasOwn(value, "value") || Object.hasOwn(value, "values")) ? choiceValues(value) : value;
   switch (condition.operator) {
     case "answered": return hasAnswer(value);
     case "not_answered": return !hasAnswer(value);
-    case "equals": return Array.isArray(value) ? value.includes(condition.value) : value === condition.value;
-    case "not_equals": return Array.isArray(value) ? !value.includes(condition.value) : value !== condition.value;
-    case "contains": return String(value ?? "").toLowerCase().includes(String(condition.value ?? "").toLowerCase());
-    case "greater_than": return Number(value) > Number(condition.value);
-    case "less_than": return Number(value) < Number(condition.value);
-    case "at_least": return Number(value) >= Number(condition.value);
-    case "at_most": return Number(value) <= Number(condition.value);
+    case "equals": return Array.isArray(comparable) ? comparable.includes(condition.value) : comparable === condition.value;
+    case "not_equals": return Array.isArray(comparable) ? !comparable.includes(condition.value) : comparable !== condition.value;
+    case "contains": return String(comparable ?? "").toLowerCase().includes(String(condition.value ?? "").toLowerCase());
+    case "greater_than": return Number(comparable) > Number(condition.value);
+    case "less_than": return Number(comparable) < Number(condition.value);
+    case "at_least": return Number(comparable) >= Number(condition.value);
+    case "at_most": return Number(comparable) <= Number(condition.value);
     default: return false;
   }
 }
@@ -75,10 +90,20 @@ function validateValue(question, value, partial, submissionId) {
   if (["number", "rating", "nps", "likert"].includes(question.type)) {
     if (!Number.isFinite(Number(value))) return "Enter a valid number.";
     if (question.validation?.min !== undefined && Number(value) < Number(question.validation.min) || question.validation?.max !== undefined && Number(value) > Number(question.validation.max)) return "Enter a value in the allowed range.";
+    if (question.validation?.integer && !Number.isInteger(Number(value))) return "Enter a whole number.";
   }
   const optionIds = new Set((question.options || []).map((option) => option.id));
-  if (["single_choice", "dropdown", "yes_no"].includes(question.type) && !optionIds.has(value)) return "Choose an available option.";
-  if (question.type === "multiple_choice" && (!Array.isArray(value) || value.some((item) => !optionIds.has(item)))) return "Choose only available options.";
+  const selected = choiceValues(value);
+  if (["single_choice", "dropdown", "yes_no"].includes(question.type) && (selected.length !== 1 || !optionIds.has(selected[0]))) return "Choose an available option.";
+  if (question.type === "multiple_choice" && (!Array.isArray(value) && !(value && Array.isArray(value.values)) || selected.some((item) => !optionIds.has(item)) || new Set(selected).size !== selected.length)) return "Choose only available options.";
+  if (question.type === "multiple_choice") {
+    const minimum = question.validation?.minSelections;
+    const maximum = question.validation?.maxSelections;
+    if (minimum !== undefined && selected.length < Number(minimum)) return `Choose at least ${minimum} option(s).`;
+    if (maximum !== undefined && selected.length > Number(maximum)) return `Choose up to ${maximum} option(s).`;
+    if ((question.validation?.exclusiveOptionIds || []).some((optionId) => selected.includes(optionId)) && selected.length > 1) return "That option cannot be combined with another choice.";
+  }
+  if (question.other?.optionId && selected.includes(question.other.optionId) && question.other.required && !otherText(value).trim()) return "Please specify your Other answer.";
   if (question.type === "ranking" && (!Array.isArray(value) || value.length !== optionIds.size || new Set(value).size !== optionIds.size || value.some((item) => !optionIds.has(item)))) return "Rank every available option once.";
   if (["matrix_single", "matrix_multiple"].includes(question.type)) {
     if (typeof value !== "object" || Array.isArray(value)) return "Complete the matrix with available choices.";
@@ -88,7 +113,7 @@ function validateValue(question, value, partial, submissionId) {
     for (const [rowId, selection] of Object.entries(value)) {
       if (!rowIds.has(rowId)) return "Use only available matrix rows.";
       if (question.type === "matrix_single" && !columnIds.has(selection)) return "Use only available matrix columns.";
-      if (question.type === "matrix_multiple" && (!Array.isArray(selection) || selection.some((columnId) => !columnIds.has(columnId)))) return "Use only available matrix columns.";
+      if (question.type === "matrix_multiple" && (!Array.isArray(selection) || new Set(selection).size !== selection.length || selection.some((columnId) => !columnIds.has(columnId)))) return "Use only available matrix columns.";
     }
   }
   if (question.type === "upload" && (typeof value !== "object" || typeof value.path !== "string" || typeof value.name !== "string" || !submissionId || !value.path.startsWith(`${submissionId}/${question.id}/`))) return "Upload an approved private file.";
@@ -123,8 +148,8 @@ function calculateFields(definition, answers) {
 
 function scoreFor(question, value) {
   const weight = Number(question.scoring?.weight ?? 1);
-  if (["single_choice", "dropdown", "yes_no"].includes(question.type)) return Number((question.options || []).find((option) => option.id === value)?.score || 0) * weight;
-  if (["multiple_choice", "ranking"].includes(question.type)) return value.reduce((sum, optionId) => sum + Number((question.options || []).find((option) => option.id === optionId)?.score || 0), 0) * weight;
+  if (["single_choice", "dropdown", "yes_no"].includes(question.type)) return Number((question.options || []).find((option) => option.id === choiceValues(value)[0])?.score || 0) * weight;
+  if (["multiple_choice", "ranking"].includes(question.type)) return choiceValues(value).reduce((sum, optionId) => sum + Number((question.options || []).find((option) => option.id === optionId)?.score || 0), 0) * weight;
   if (["number", "rating", "nps", "likert", "calculated"].includes(question.type)) return Number(value || 0) * weight;
   return 0;
 }

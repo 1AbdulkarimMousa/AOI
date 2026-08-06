@@ -77,3 +77,37 @@ test("accepts complete matrices, rankings, and owned upload paths", () => {
 
   assert.equal(result.valid, true);
 });
+
+test("authoritatively validates attached Other text and multi-choice constraints", () => {
+  const specialized = structuredClone(definition);
+  specialized.blocks[0].blocks.push({
+    id: "products",
+    type: "multiple_choice",
+    required: true,
+    options: [{ id: "brush" }, { id: "floss" }, { id: "none" }, { id: "other" }],
+    validation: { maxSelections: 2, exclusiveOptionIds: ["none"] },
+    other: { optionId: "other", required: true },
+  });
+
+  assert.match(validateSurveyPayload(specialized, { need: "no", consent: true, products: ["brush", "floss", "other"] }).errors.products, /up to 2/);
+  assert.match(validateSurveyPayload(specialized, { need: "no", consent: true, products: ["none", "brush"] }).errors.products, /cannot be combined/);
+  assert.match(validateSurveyPayload(specialized, { need: "no", consent: true, products: { values: ["other"], otherText: "" } }).errors.products, /specify/i);
+  assert.equal(validateSurveyPayload(specialized, { need: "no", consent: true, products: { values: ["other"], otherText: "Tongue gel" } }).valid, true);
+});
+
+test("matches the browser contract for every structured answer type", () => {
+  const specialized = structuredClone(definition);
+  specialized.blocks[0].blocks.push(
+    { id: "multi", type: "matrix_multiple", required: true, rows: [{ id: "r1" }], columns: [{ id: "c1" }, { id: "c2" }] },
+    { id: "integer", type: "number", required: true, validation: { min: 1, max: 3, integer: true } },
+  );
+
+  const duplicateColumns = validateSurveyPayload(specialized, {
+    need: "no", consent: true, multi: { r1: ["c1", "c1"] }, integer: 1.5,
+  });
+  assert.ok(duplicateColumns.errors.multi);
+  assert.equal(duplicateColumns.errors.integer, "Enter a whole number.");
+  assert.equal(validateSurveyPayload(specialized, {
+    need: "no", consent: true, multi: { r1: ["c1", "c2"] }, integer: 2,
+  }).valid, true);
+});

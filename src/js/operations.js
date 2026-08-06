@@ -1,26 +1,46 @@
-import { csvCell } from "./core.js";
+import { csvCell, isSafeHttpUrl } from "./core.js";
 import readXlsxFile from "read-excel-file";
 
 const fields = [
   ["externalId", ["id", "external id"]],
+  ["source", ["source"]],
   ["category", ["category"]],
   ["name", ["handle / name", "handle/name", "name", "handle"]],
   ["platforms", ["primary platform", "platforms", "platform"]],
   ["reach", ["reach", "reach / evidence", "followers"]],
   ["tier", ["tier"]],
+  ["creatorType", ["creator type"]],
+  ["contentFit", ["content fit", "fit"]],
+  ["fitLevel", ["fit level"]],
   ["contactReadiness", ["contact readiness"]],
   ["contactChannel", ["contact channel"]],
   ["contactDetail", ["contact detail"]],
   ["sourceUrl", ["source url"]],
   ["pmfCandidate", ["pmf candidate"]],
-  ["ownerName", ["owner"]],
+  ["pmfRationale", ["pmf rationale"]],
+  ["priorityScore", ["priority score"]],
+  ["priorityBand", ["priority band"]],
+  ["ownerName", ["owner", "owner name"]],
   ["outreachStatus", ["outreach status", "status"]],
+  ["interestLevel", ["interest level"]],
+  ["preferredCollaboration", ["preferred collaboration"]],
+  ["deckIntroduced", ["deck introduced"]],
+  ["pmfAsked", ["pmf asked"]],
   ["firstOutreach", ["first outreach"]],
+  ["followUp1", ["follow up 1", "follow-up 1"]],
+  ["followUp2", ["follow up 2", "follow-up 2"]],
+  ["responseDate", ["response date"]],
+  ["nextStep", ["next step"]],
   ["nextStepDue", ["next step due"]],
+  ["notes", ["notes"]],
+  ["sourceUpdatedOn", ["source updated on"]],
 ];
 
+const legacyOutputKeys = new Set(["externalId", "category", "name", "platforms", "reach", "tier", "contactReadiness", "contactChannel", "contactDetail", "sourceUrl", "pmfCandidate", "ownerName", "outreachStatus", "firstOutreach", "nextStepDue"]);
+const booleanFields = new Set(["pmfCandidate", "deckIntroduced", "pmfAsked"]);
+
 function normalizeHeader(value) {
-  return String(value || "").trim().replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replaceAll("_", " ");
+  return String(value || "").trim().replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").toLowerCase().replaceAll("_", " ");
 }
 
 function parseDelimited(text) {
@@ -65,6 +85,10 @@ function valueFor(row, headerIndex, aliases) {
   return index === undefined ? "" : String(row[Number(index)] || "").trim();
 }
 
+function hasField(headerIndex, aliases) {
+  return Object.values(headerIndex).some((header) => aliases.includes(header));
+}
+
 function booleanValue(value) {
   return ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
 }
@@ -82,23 +106,17 @@ function parseCandidateMatrix(matrix) {
       errors.push(`Row ${line}: Handle / Name is required.`);
       return;
     }
-    rows.push({
-      externalId: valueFor(raw, headerIndex, fields[0][1]),
-      category: valueFor(raw, headerIndex, fields[1][1]),
-      name,
-      platforms: valueFor(raw, headerIndex, fields[3][1]),
-      reach: valueFor(raw, headerIndex, fields[4][1]),
-      tier: valueFor(raw, headerIndex, fields[5][1]),
-      contactReadiness: valueFor(raw, headerIndex, fields[6][1]),
-      contactChannel: valueFor(raw, headerIndex, fields[7][1]),
-      contactDetail: valueFor(raw, headerIndex, fields[8][1]),
-      sourceUrl: valueFor(raw, headerIndex, fields[9][1]),
-      pmfCandidate: booleanValue(valueFor(raw, headerIndex, fields[10][1])),
-      ownerName: valueFor(raw, headerIndex, fields[11][1]),
-      outreachStatus: valueFor(raw, headerIndex, fields[12][1]),
-      firstOutreach: valueFor(raw, headerIndex, fields[13][1]),
-      nextStepDue: valueFor(raw, headerIndex, fields[14][1]),
-    });
+    const candidate = {};
+    for (const [key, aliases] of fields) {
+      if (!legacyOutputKeys.has(key) && !hasField(headerIndex, aliases)) continue;
+      const value = key === "name" ? name : valueFor(raw, headerIndex, aliases);
+      candidate[key] = booleanFields.has(key) ? booleanValue(value) : key === "priorityScore" && value !== "" ? Number(value) : value;
+    }
+    if (candidate.sourceUrl && !isSafeHttpUrl(candidate.sourceUrl)) {
+      errors.push(`Row ${line}: Source URL must use http or https.`);
+      return;
+    }
+    rows.push(candidate);
   });
 
   return { rows, errors };

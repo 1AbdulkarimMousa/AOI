@@ -12,3 +12,12 @@ test("workspace context keeps temporary accounts in the password setup flow", as
   assert.match(sql, /mustChangePassword/i);
   assert.match(sql, /grant execute on function public\.rpc_current_user_context\(\) to authenticated/i);
 });
+
+test("only invalid workspace membership signs out an existing session", async () => {
+  const source = await readFile(new URL("../src/js/auth.js", import.meta.url), "utf8");
+
+  assert.match(source, /class WorkspaceMembershipError extends Error/);
+  assert.match(source, /if \(reason instanceof WorkspaceMembershipError\) await signOut\(\)/);
+  assert.match(source, /throw new Error\(context\.error\.message/);
+  assert.doesNotMatch(source, /catch \{\s*await signOut\(\)/);
+});

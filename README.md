@@ -117,6 +117,16 @@ AOI_RESET_ALL_PASSWORDS=1 npm run seed:wen
 
 The script reads `SUPABASE_SERVICE_ROLE_KEY` from `.env.local`, never prints it, and marks active users for an in-app password-change reminder. Do not use a Supabase access token as the service-role key.
 
+### Wen Consumer Survey
+
+Wen's 44-question Consumer Oral Health Survey is maintained as an English-only canonical definition and seeded as a draft assigned to Wen:
+
+```bash
+npm run seed:wen-survey
+```
+
+This standalone seed never creates users or changes passwords. It is repeatable when the canonical draft is unchanged and refuses to overwrite edits, submitted versions, or collected responses. Apply all survey migrations before approving or publishing the survey so direct identifiers are stored separately from analytical answers.
+
 ## Supabase
 
 Apply `supabase/migrations/` in order. Deploy the privileged user workflow with the Supabase CLI:

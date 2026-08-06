@@ -1,6 +1,8 @@
 import { getSupabaseClient } from "./supabase.js";
 import { isStrongPassword } from "./password-reminder.js";
 
+export class WorkspaceMembershipError extends Error {}
+
 export async function getSession() {
   const { data, error } = await getSupabaseClient().auth.getSession();
   if (error) throw new Error(error.message);
@@ -11,11 +13,14 @@ export async function requireWorkspaceAccess() {
   const client = getSupabaseClient();
   let context = await client.rpc("rpc_current_user_context");
   if (!context.error && context.data) return context.data;
+  if (context.error) throw new Error(context.error.message || "Unable to verify workspace access.");
 
   const accepted = await client.rpc("rpc_accept_invitation");
   if (!accepted.error && accepted.data) return accepted.data;
+  if (accepted.error) throw new Error(accepted.error.message || "Unable to accept the workspace invitation.");
   context = await client.rpc("rpc_current_user_context");
-  if (context.error || !context.data) throw new Error("Your account is not assigned to the AOI workspace.");
+  if (context.error) throw new Error(context.error.message || "Unable to verify workspace access.");
+  if (!context.data) throw new WorkspaceMembershipError("Your account is not assigned to the AOI workspace.");
   return context.data;
 }
 
@@ -30,7 +35,7 @@ export async function signIn(email, password) {
   try {
     return await requireWorkspaceAccess();
   } catch (reason) {
-    await signOut();
+    if (reason instanceof WorkspaceMembershipError) await signOut();
     throw reason;
   }
 }
@@ -40,9 +45,12 @@ export async function getExistingWorkspaceAccess() {
   if (!session) return null;
   try {
     return await requireWorkspaceAccess();
-  } catch {
-    await signOut();
-    return null;
+  } catch (reason) {
+    if (reason instanceof WorkspaceMembershipError) {
+      await signOut();
+      return null;
+    }
+    throw reason;
   }
 }
 

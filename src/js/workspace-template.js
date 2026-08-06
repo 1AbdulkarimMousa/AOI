@@ -15,7 +15,7 @@ export const workspaceTemplate = String.raw`
 
   <template x-if="ready && access">
     <div class="app-shell" :class="sidebarCollapsed && 'sidebar-collapsed'">
-      <aside class="sidebar" :class="mobileNav && 'mobile-open'">
+      <aside id="workspace-sidebar" class="sidebar" :class="mobileNav && 'mobile-open'" :inert="window.matchMedia('(max-width: 820px)').matches && !mobileNav" :aria-hidden="window.matchMedia('(max-width: 820px)').matches && !mobileNav ? 'true' : 'false'">
         <div class="brand-row">
           <div class="co-brand-lockup" aria-label="Ambiloop and HUGE Dental"><span class="co-brand-logo co-brand-ambiloop"><img src="${import.meta.env.BASE_URL}ambiloop-logo.png" alt="Ambiloop"></span><i>×</i><span class="co-brand-logo co-brand-huge"><img src="${import.meta.env.BASE_URL}huge-dental-logo.png" alt="HUGE Dental"></span></div>
           <div class="brand-copy"><strong>Ambiloop × HUGE</strong><span>Research operations</span></div>
@@ -42,7 +42,7 @@ export const workspaceTemplate = String.raw`
 
       <div class="main-wrap">
         <header class="topbar">
-          <button class="mobile-menu" @click="mobileNav=true" aria-label="Open menu">☰</button>
+          <button class="mobile-menu" @click="mobileNav=true" aria-label="Open menu" aria-controls="workspace-sidebar" :aria-expanded="mobileNav">☰</button>
           <div class="breadcrumb"><span x-text="data.project.code"></span><b>›</b><strong x-text="navigation.find(item => item.id===view)?.label || 'Overview'"></strong></div>
           <button class="search-box" @click="commandOpen=true"><span>⌕</span><span>Search or jump to…</span><kbd>⌘ K</kbd></button>
           <div class="top-actions">
@@ -113,4 +113,15 @@ export const workspaceTemplate = String.raw`
       <div x-show="toast" class="toast" role="status"><span class="toast-icon">✓</span><div><strong x-text="toast?.title"></strong><p x-text="toast?.body"></p></div><button @click="toast=null">×</button></div>
     </div>
   </template>
-</div>`;
+</div>`
+  .replace("@keydown.window.escape=\"commandOpen=false; selectedTask=null; notificationOpen=false; mobileNav=false; selectedCollectRecord && closeCollectRecord(); selectedDailyEod && closeDailyEodRecord()\"", "@keydown.window.escape=\"commandOpen=false; selectedTask && closeTask(); candidateEditorOpen && closeCandidate(); crmEditorOpen && closeCrmContact(); notificationOpen=false; mobileNav=false; selectedCollectRecord && closeCollectRecord(); selectedDailyEod && closeDailyEodRecord()\"")
+  .replaceAll("@click=\"selectedLayer=layer;setView('pmf')\"", "@click=\"openPmfLayer(layer)\"")
+  .replace("@click=\"showToast('Progress update','Use a task checkpoint to record verified progress.')\"", "@click=\"openTaskCheckpoint()\" :disabled=\"!data.tasks.some(task=>!['completed','submitted'].includes(task.status))\" x-text=\"access.role==='admin'?'Review first task':'Log progress update'\"")
+  .replace("class=\"candidate-drawer\" role=\"dialog\" aria-modal=\"true\"", "class=\"candidate-drawer\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"candidate-drawer-title\" tabindex=\"-1\" @keydown.tab=\"trapDialogFocus($event,'.candidate-drawer')\"")
+  .replace("<h2 x-text=\"candidateForm.name||'Add a candidate'\" ></h2>", "<h2 id=\"candidate-drawer-title\" x-text=\"candidateForm.name||'Add a candidate'\"></h2>")
+  .replaceAll("<button class=\"icon-button\" @click=\"closeCandidate()\">×</button>", "<button class=\"icon-button\" @click=\"closeCandidate()\" aria-label=\"Close candidate\">×</button>")
+  .replace("x-show=\"selectedTask\" class=\"modal-backdrop drawer-backdrop\" @mousedown.self=\"selectedTask=null\"", "x-show=\"selectedTask\" class=\"modal-backdrop drawer-backdrop\" @mousedown.self=\"closeTask()\"")
+  .replace("class=\"task-drawer\" role=\"dialog\" aria-modal=\"true\"", "class=\"task-drawer\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"task-drawer-title\" tabindex=\"-1\" @keydown.tab=\"trapDialogFocus($event,'.task-drawer')\"")
+  .replace("<h2 x-text=\"td(selectedTask?.title||'')\"></h2>", "<h2 id=\"task-drawer-title\" x-text=\"td(selectedTask?.title||'')\"></h2>")
+  .replace("<button class=\"icon-button\" @click=\"selectedTask=null\">×</button>", "<button class=\"icon-button\" @click=\"closeTask()\" aria-label=\"Close task\">×</button>")
+  .replace("<div class=\"drawer-actions\"><button class=\"button button-secondary\" @click=\"selectedTask=null\">Close</button><button class=\"button button-primary\" @click=\"completeCheckpoint()\">Complete next step</button></div>", "<div x-show=\"canUpdateSelectedTask\" class=\"drawer-section research-form\"><label><span>Progress percent</span><input type=\"number\" min=\"0\" max=\"100\" x-model.number=\"taskCheckpointForm.progress\"></label><label><span>Checkpoint state</span><select x-model=\"taskCheckpointForm.status\"><option value=\"assigned\">Assigned</option><option value=\"in_progress\">In progress</option><option value=\"blocked\">Blocked</option><option value=\"submitted\">Submitted for review</option><option value=\"resubmitted\">Resubmitted</option><option value=\"completed\">Completed</option></select></label><label><span>Checkpoint note or evidence</span><textarea rows=\"3\" x-model.trim=\"taskCheckpointForm.note\" placeholder=\"What changed, what evidence supports it, and what is blocked?\"></textarea></label><div x-show=\"taskCheckpointNotice\" class=\"admin-notice\" :class=\"taskCheckpointNotice?.tone\" role=\"status\" x-text=\"taskCheckpointNotice?.text\"></div></div><div x-show=\"access.role==='admin'\" class=\"drawer-callout\"><span>◎</span><div><strong>Administrator review</strong><p>Checkpoint updates are entered by the assigned intern. Use Administration to change ownership or review status.</p></div></div><div class=\"drawer-actions\"><button class=\"button button-secondary\" @click=\"closeTask()\">Close</button><button x-show=\"canUpdateSelectedTask\" class=\"button button-primary\" :disabled=\"savingTaskCheckpoint\" @click=\"completeCheckpoint()\" x-text=\"savingTaskCheckpoint?'Saving…':'Save checkpoint'\"></button></div>");

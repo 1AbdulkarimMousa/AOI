@@ -1,7 +1,7 @@
 import "../../css/surveys.css";
 import { invokeSurveyPublic } from "../api.js";
 import { getSupabaseClient } from "../supabase.js";
-import { calculateSurveyFields, calculateSurveyScore, deterministicOrder, evaluateVisibility, renderPipedText, surveyQuestions, validateSurveyAnswers } from "./domain.js";
+import { calculateSurveyFields, calculateSurveyScore, deterministicOrder, evaluateVisibility, renderPipedText, surveyChoiceValues, surveyOtherText, surveyQuestions, validateSurveyAnswers } from "./domain.js";
 
 function tokenFromLocation() {
   return new URLSearchParams(location.hash.replace(/^#/, "")).get("token") || "";
@@ -13,6 +13,11 @@ function invitationTokenFromLocation() {
 
 function storageKey(token) {
   return `aoi-survey-response:${token.slice(0, 16)}`;
+}
+
+function embedOrigin() {
+  if (globalThis.location === globalThis.parent?.location) return "";
+  try { return new URL(document.referrer).origin; } catch { return ""; }
 }
 
 export function registerSurveyRunner(Alpine) {
@@ -38,8 +43,32 @@ export function registerSurveyRunner(Alpine) {
     consentAccepted: false,
     idempotencyKey: "",
     autosaveTimer: null,
+    preview: false,
+    saveGeneration: 0,
+    savedGeneration: 0,
+    saveQueued: false,
+    savePromise: null,
 
     async init() {
+      const previewId = new URLSearchParams(location.search).get("preview");
+      if (previewId) {
+        try {
+          const previewDefinition = localStorage.getItem(`aoi-survey-preview:${previewId}`);
+          if (!previewDefinition) throw new Error("preview unavailable");
+          this.preview = true;
+          this.token = `preview-${previewId}`;
+          this.definition = JSON.parse(previewDefinition);
+          this.link = { versionId: "preview", identityMode: "preview" };
+          this.locale = this.definition.defaultLocale || "en";
+          document.documentElement.lang = this.locale;
+        } catch {
+          this.error = "This survey preview is unavailable.";
+        } finally {
+          this.loading = false;
+          this.ready = true;
+        }
+        return;
+      }
       this.token = tokenFromLocation();
       this.invitationToken = invitationTokenFromLocation();
       if (this.token.length < 32) {
@@ -49,19 +78,29 @@ export function registerSurveyRunner(Alpine) {
         return;
       }
       try {
-        this.link = await invokeSurveyPublic("load", { token: this.token, invitationToken: this.invitationToken });
+        this.link = await invokeSurveyPublic("load", { token: this.token, invitationToken: this.invitationToken, embedOrigin: embedOrigin() });
         this.definition = this.link.definition;
-        this.locale = localStorage.getItem("aoi-survey-locale") === "zh-CN" ? "zh-CN" : this.definition.defaultLocale || "en";
+        const savedLocale = localStorage.getItem("aoi-survey-locale");
+        this.locale = this.definition.locales?.includes(savedLocale) ? savedLocale : this.definition.defaultLocale || "en";
         document.documentElement.lang = this.locale;
         const restored = globalThis.localStorage.getItem(storageKey(this.token));
-        if (restored) {
+        if (restored) try {
           const saved = JSON.parse(restored);
           this.session = saved.session || null;
-          this.answers = saved.answers || {};
+          this.answers = saved.answers && typeof saved.answers === "object" ? saved.answers : {};
           this.sectionIndex = Math.min(Number(saved.sectionIndex) || 0, Math.max(0, this.sections().length - 1));
-          this.started = Boolean(this.session);
+          this.started = Boolean(this.session?.submissionId && this.session?.resumeToken);
           this.consentAccepted = Boolean(saved.consentAccepted);
           this.idempotencyKey = saved.idempotencyKey || "";
+          if (!this.started && saved.session) throw new Error("invalid session");
+        } catch {
+          globalThis.localStorage.removeItem(storageKey(this.token));
+          this.session = null;
+          this.answers = {};
+          this.sectionIndex = 0;
+          this.started = false;
+          this.idempotencyKey = "";
+          this.liveStatus = "Saved progress was corrupt and has been reset safely.";
         }
       } catch {
         this.error = "This survey link is unavailable.";
@@ -83,10 +122,17 @@ export function registerSurveyRunner(Alpine) {
       return values[this.locale]?.[key] || values.en[key] || key;
     },
     switchLocale() {
+      if (!(this.definition?.locales || []).includes("zh-CN")) return;
       this.locale = this.locale === "en" ? "zh-CN" : "en";
       document.documentElement.lang = this.locale;
       localStorage.setItem("aoi-survey-locale", this.locale);
     },
+    surveyThemeClass() {
+      const accent = ["orange", "teal", "purple"].includes(this.definition?.theme?.accent) ? this.definition.theme.accent : "orange";
+      const density = this.definition?.theme?.density === "compact" ? "compact" : "comfortable";
+      return `survey-theme-${accent} survey-density-${density}`;
+    },
+    showProgress() { return this.definition?.settings?.showProgress !== false; },
     sections() {
       const sections = (this.definition?.blocks || []).filter((section) => section.type === "section");
       return this.definition?.settings?.randomizeSections && this.session
@@ -94,15 +140,19 @@ export function registerSurveyRunner(Alpine) {
         : sections;
     },
     surveyQuestions(definition = this.definition) { return surveyQuestions(definition || { blocks: [] }); },
+    surveyChoiceValues(value) { return surveyChoiceValues(value); },
+    surveyOtherText(value) { return surveyOtherText(value); },
     currentSection() { return this.sections()[this.sectionIndex] || null; },
     visibleQuestionIds() { return new Set(evaluateVisibility(this.definition, this.answers)); },
-    currentQuestions() {
+    currentBlocks() {
       const section = this.currentSection();
-      const questions = (section?.blocks || []).filter((question) => question.type !== "hidden" && this.visibleQuestionIds().has(question.id));
-      return section?.randomizeQuestions && this.session
-        ? deterministicOrder(questions, `${this.session.submissionId}:${section.id}`)
-        : questions;
+      const blocks = (section?.blocks || []).filter((block) => block.type === "content" || block.type !== "hidden" && this.visibleQuestionIds().has(block.id));
+      if (!section?.randomizeQuestions || !this.session) return blocks;
+      const questions = deterministicOrder(blocks.filter((block) => block.type !== "content"), `${this.session.submissionId}:${section.id}`);
+      let questionIndex = 0;
+      return blocks.map((block) => block.type === "content" ? block : questions[questionIndex++]);
     },
+    currentQuestions() { return this.currentBlocks().filter((block) => block.type !== "content"); },
     questionOptions(question) {
       return question.randomizeOptions && this.session
         ? deterministicOrder(question.options || [], `${this.session.submissionId}:${question.id}:options`)
@@ -111,6 +161,11 @@ export function registerSurveyRunner(Alpine) {
     allQuestions() { return surveyQuestions(this.definition || { blocks: [] }).filter((question) => question.type !== "hidden" && this.visibleQuestionIds().has(question.id)); },
     progress() { return this.sections().length ? Math.round((this.sectionIndex + (this.reviewing ? 1 : 0)) / this.sections().length * 100) : 0; },
     answerLabel(question, value) {
+      if (["single_choice", "multiple_choice", "dropdown", "yes_no"].includes(question.type)) {
+        const labels = surveyChoiceValues(value).map((selected) => this.text((question.options || []).find((option) => option.id === selected)?.label) || selected);
+        if (surveyOtherText(value)) labels.push(surveyOtherText(value));
+        return labels.join(", ") || "No answer";
+      }
       if (Array.isArray(value)) return value.map((item) => this.answerLabel(question, item)).join(", ");
       if (value && typeof value === "object") {
         if (value.name) return value.name;
@@ -127,9 +182,14 @@ export function registerSurveyRunner(Alpine) {
       this.error = "";
       this.loading = true;
       try {
-        this.session = await invokeSurveyPublic("start", {
+        this.session = this.preview ? {
+          submissionId: `preview-${globalThis.crypto.randomUUID()}`,
+          resumeToken: "preview",
+          status: "in_progress",
+        } : await invokeSurveyPublic("start", {
           token: this.token,
           invitationToken: this.invitationToken,
+          embedOrigin: embedOrigin(),
           locale: this.locale,
           consent: { accepted: this.consentAccepted, locale: this.locale, shownAt: new Date().toISOString(), versionId: this.link.versionId },
         });
@@ -144,14 +204,43 @@ export function registerSurveyRunner(Alpine) {
     setAnswer(questionId, value) {
       this.answers[questionId] = value;
       this.answers = calculateSurveyFields(this.definition, this.answers);
+      this.saveGeneration += 1;
       delete this.errors[questionId];
       this.persistLocal();
       this.scheduleSave();
     },
-    toggleAnswer(questionId, value) {
-      const selected = new Set(Array.isArray(this.answers[questionId]) ? this.answers[questionId] : []);
-      if (selected.has(value)) selected.delete(value); else selected.add(value);
-      this.setAnswer(questionId, [...selected]);
+    isChoiceSelected(question, optionId) {
+      return surveyChoiceValues(this.answers[question.id]).includes(optionId);
+    },
+    setChoiceAnswer(question, optionId) {
+      const value = question.other?.optionId === optionId
+        ? { value: optionId, otherText: surveyOtherText(this.answers[question.id]) }
+        : optionId;
+      this.setAnswer(question.id, value);
+    },
+    toggleAnswer(question, optionId) {
+      const selected = new Set(surveyChoiceValues(this.answers[question.id]));
+      const exclusive = new Set(question.validation?.exclusiveOptionIds || []);
+      if (selected.has(optionId)) selected.delete(optionId);
+      else {
+        if (exclusive.has(optionId)) selected.clear();
+        else for (const value of exclusive) selected.delete(value);
+        if (question.validation?.maxSelections && selected.size >= Number(question.validation.maxSelections)) {
+          this.errors[question.id] = `Choose up to ${question.validation.maxSelections} option(s).`;
+          return;
+        }
+        selected.add(optionId);
+      }
+      const values = [...selected];
+      this.setAnswer(question.id, question.other?.optionId && selected.has(question.other.optionId)
+        ? { values, otherText: surveyOtherText(this.answers[question.id]) }
+        : values);
+    },
+    setOtherText(question, value) {
+      const selected = surveyChoiceValues(this.answers[question.id]);
+      this.setAnswer(question.id, question.type === "multiple_choice"
+        ? { values: selected, otherText: value }
+        : { value: selected[0] || question.other.optionId, otherText: value });
     },
     rankingValues(question) {
       const current = this.answers[question.id];
@@ -182,25 +271,48 @@ export function registerSurveyRunner(Alpine) {
     },
     async saveProgress() {
       if (!this.session || this.completed || this.submitting) return;
+      if (this.preview) {
+        this.liveStatus = this.copy("saved");
+        this.persistLocal();
+        return;
+      }
+      if (this.saving) {
+        this.saveQueued = true;
+        await this.savePromise;
+        if (this.saveGeneration > this.savedGeneration) return this.saveProgress();
+        return;
+      }
+      const generation = this.saveGeneration;
+      const answers = structuredClone(this.answers);
       this.saving = true;
-      try {
+      this.saveQueued = false;
+      this.savePromise = (async () => {
+        try {
         await invokeSurveyPublic("save", {
           token: this.token,
           invitationToken: this.invitationToken,
+          embedOrigin: embedOrigin(),
           submissionId: this.session.submissionId,
           resumeToken: this.session.resumeToken,
-          answers: this.answers,
+          answers,
         });
-        this.liveStatus = this.copy("saved");
-      } catch {
+        this.savedGeneration = Math.max(this.savedGeneration, generation);
+        if (generation === this.saveGeneration) this.liveStatus = this.copy("saved");
+        } catch (reason) {
+        if (reason?.fields) this.errors = { ...this.errors, ...reason.fields };
         this.liveStatus = "Progress is stored on this device. Online save will retry.";
         window.clearTimeout(this.autosaveTimer);
         this.autosaveTimer = window.setTimeout(() => this.saveProgress(), 4000);
-      } finally { this.saving = false; }
+        }
+      })();
+      await this.savePromise;
+      this.savePromise = null;
+      this.saving = false;
+      if (this.saveQueued && this.saveGeneration > this.savedGeneration) return this.saveProgress();
     },
     validateCurrentSection() {
       for (const question of this.currentQuestions().filter((item) => item.type === "ranking" && !this.answers[item.id])) this.answers[question.id] = this.rankingValues(question);
-      const result = validateSurveyAnswers(this.definition, this.answers);
+      const result = validateSurveyAnswers(this.definition, this.answers, { submissionId: this.session?.submissionId });
       const ids = new Set(this.currentQuestions().map((question) => question.id));
       this.errors = Object.fromEntries(Object.entries(result.errors).filter(([questionId]) => ids.has(questionId)));
       return Object.keys(this.errors).length === 0;
@@ -217,9 +329,11 @@ export function registerSurveyRunner(Alpine) {
         this.sectionIndex += 1;
         this.persistLocal();
         window.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
+      } else if (this.definition?.settings?.allowReview !== false) {
         this.reviewing = true;
         window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        await this.submitResponse();
       }
     },
     previousSection() {
@@ -240,22 +354,29 @@ export function registerSurveyRunner(Alpine) {
         this.errors[question.id] = "Choose an allowed file smaller than 15 MB.";
         return;
       }
+      if (this.preview) {
+        this.setAnswer(question.id, { path: `${this.session.submissionId}/${question.id}/${encodeURIComponent(file.name)}`, name: file.name, type: file.type, size: file.size });
+        this.liveStatus = "Preview file selected; nothing was uploaded.";
+        event.target.value = "";
+        return;
+      }
       this.liveStatus = "Preparing private upload…";
       try {
         const grant = await invokeSurveyPublic("upload", {
           token: this.token, invitationToken: this.invitationToken, submissionId: this.session.submissionId, resumeToken: this.session.resumeToken,
-          questionId: question.id, fileName: file.name, contentType: file.type,
+          embedOrigin: embedOrigin(), questionId: question.id, fileName: file.name, contentType: file.type,
         });
-        const { error } = await getSupabaseClient().storage.from("aoi-survey-uploads").uploadToSignedUrl(grant.path, grant.token, file, { contentType: file.type });
+        const { error } = await getSupabaseClient().storage.from("aoi-survey-uploads").uploadToSignedUrl(grant.path, grant.token, file, { contentType: grant.contentType });
         if (error) throw error;
-        this.setAnswer(question.id, { path: grant.path, name: file.name, type: file.type, size: file.size });
+        this.setAnswer(question.id, { path: grant.path, name: grant.fileName, type: grant.contentType, size: file.size });
         this.liveStatus = "Private file uploaded.";
       } catch {
         this.errors[question.id] = "The file could not be uploaded.";
       } finally { event.target.value = ""; }
     },
     async submitResponse() {
-      const validation = validateSurveyAnswers(this.definition, this.answers);
+      if (this.submitting || this.completed) return;
+      const validation = validateSurveyAnswers(this.definition, this.answers, { submissionId: this.session?.submissionId });
       if (!validation.valid) {
         this.errors = validation.errors;
         const first = this.allQuestions().find((question) => validation.errors[question.id]);
@@ -267,9 +388,10 @@ export function registerSurveyRunner(Alpine) {
       try {
         this.idempotencyKey ||= globalThis.crypto.randomUUID();
         this.persistLocal();
-        await invokeSurveyPublic("submit", {
+        if (!this.preview) await invokeSurveyPublic("submit", {
           token: this.token,
           invitationToken: this.invitationToken,
+          embedOrigin: embedOrigin(),
           submissionId: this.session.submissionId,
           resumeToken: this.session.resumeToken,
           answers: this.answers,
@@ -281,7 +403,17 @@ export function registerSurveyRunner(Alpine) {
         this.reviewing = false;
         globalThis.localStorage.removeItem(storageKey(this.token));
         window.scrollTo({ top: 0, behavior: "smooth" });
-      } catch {
+        const redirectUrl = this.preview ? "" : this.definition?.completion?.redirectUrl;
+        if (redirectUrl) {
+          const redirect = new URL(redirectUrl);
+          if (["http:", "https:"].includes(redirect.protocol)) window.setTimeout(() => location.assign(redirect.href), 1200);
+        }
+      } catch (reason) {
+        if (reason?.fields && Object.keys(reason.fields).length) {
+          this.errors = reason.fields;
+          const first = this.allQuestions().find((question) => reason.fields[question.id]);
+          if (first) this.editQuestion(first);
+        }
         this.error = "Your response could not be submitted. Your progress is still saved on this device.";
       } finally { this.submitting = false; }
     },

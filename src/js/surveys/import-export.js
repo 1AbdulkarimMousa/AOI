@@ -32,7 +32,7 @@ function valueForCsv(value) {
 }
 
 export function buildResponseCsv(definition, submissions = []) {
-  const questions = surveyQuestions(definition);
+  const questions = surveyQuestions(definition).filter((question) => question.privacy?.classification !== "direct_identifier");
   const columns = ["submissionId", "status", ...questions.map((question) => question.id)];
   const rows = submissions.map((submission) => columns.map((column) => {
     if (column === "submissionId") return csvCell(submission.submissionId);

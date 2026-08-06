@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 type AdminUserInput = {
   action?: "create" | "archive" | "restore" | "complete_password_change" | "change_own_password" | "reset_user_password" | "import";
@@ -50,17 +50,31 @@ function corsHeaders(origin: string) {
 }
 
 function json(origin: string, status: number, payload: Record<string, unknown>) {
-  return Response.json(payload, { status, headers: corsHeaders(origin) });
+  return Response.json(payload, {
+    status,
+    headers: { ...corsHeaders(origin), "Cache-Control": "no-store, private" },
+  });
 }
 
 function generateTemporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*?";
-  const bytes = new Uint8Array(14);
-  crypto.getRandomValues(bytes);
-  return `Aa1!${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
+  const password = ["A", "a", "1", "!"];
+  const limit = 256 - (256 % alphabet.length);
+  while (password.length < 18) {
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    for (const byte of bytes) {
+      if (byte < limit) password.push(alphabet[byte % alphabet.length]);
+      if (password.length === 18) break;
+    }
+  }
+  crypto.getRandomValues(new Uint8Array(password.length)).forEach((byte, index) => {
+    const swapIndex = byte % password.length;
+    [password[index], password[swapIndex]] = [password[swapIndex], password[index]];
+  });
+  return password.join("");
 }
 
-async function cleanupProvisioning(adminClient: ReturnType<typeof createClient>, organizationId: string, userId: string) {
+async function cleanupProvisioning(adminClient: SupabaseClient<any>, organizationId: string, userId: string) {
   const errors: string[] = [];
   for (const operation of [
     adminClient.from("staff_onboarding_steps").delete().eq("organization_id", organizationId).eq("user_id", userId),
@@ -263,7 +277,12 @@ Deno.serve(async (request) => {
     if (error) return json(origin, 400, { error: error.message });
     const { count: activeMemberships } = await adminClient.from("organization_memberships").select("user_id", { count: "exact", head: true }).eq("user_id", body.userId).eq("status", "active");
     const banned = activeMemberships ? { error: null } : await adminClient.auth.admin.updateUserById(body.userId, { ban_duration: "876000h" });
-    if (banned.error) return json(origin, 500, { error: "Work was archived, but Auth suspension needs administrator attention.", result: data });
+    if (banned.error) return json(origin, 200, {
+      result: data,
+      reconciliationRequired: true,
+      reconciliation: "auth_suspension",
+      message: "Work was archived, but Auth suspension needs administrator attention.",
+    });
     return json(origin, 200, { result: data });
   }
 
@@ -295,8 +314,7 @@ Deno.serve(async (request) => {
   if (role !== "admin" && role !== "intern") return json(origin, 400, { error: "Choose a valid workspace role." });
   if (role === "admin" && !membership.is_owner) return json(origin, 403, { error: "Only the organization owner can add another administrator." });
 
-  const generatedPassword = accessMethod === "temporary_password" ? (String(body.password || "") || "123456") : "";
-  if (accessMethod === "temporary_password" && generatedPassword !== "123456" && generatedPassword.length < 10) return json(origin, 400, { error: "Temporary passwords must contain at least 10 characters." });
+  const generatedPassword = accessMethod === "temporary_password" ? generateTemporaryPassword() : "";
 
   const created = accessMethod === "invite"
     ? await adminClient.auth.admin.inviteUserByEmail(email, {
@@ -373,6 +391,6 @@ Deno.serve(async (request) => {
       joined_at: new Date().toISOString(),
     },
     accessMethod,
-    temporaryPassword: generatedPassword || undefined,
+    ...(accessMethod === "temporary_password" ? { temporaryPassword: generatedPassword } : {}),
   });
 });

@@ -284,8 +284,12 @@ export async function invokeSurveyPublic(action, payload = {}) {
   const { data, error } = await getSupabaseClient().functions.invoke("survey-public", {
     body: { action, ...payload },
   });
-  if (error) throw new Error(data?.error || error.message);
-  if (data?.error) throw new Error(data.error);
+  if (error || data?.error) {
+    const surveyError = new Error(data?.error || error.message);
+    surveyError.code = data?.code || "SURVEY_REQUEST_FAILED";
+    surveyError.fields = data?.fields || {};
+    throw surveyError;
+  }
   return data?.data;
 }
 

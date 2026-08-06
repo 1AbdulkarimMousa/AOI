@@ -76,6 +76,8 @@ export function registerHelpCenter(Alpine) {
     editorOpen: false,
     editorDraft: createArticleDraft(),
     editorNotice: null,
+    publicationNotice: null,
+    editorReturnFocus: null,
     tagsText: "",
     saving: false,
     locale: localStorage.getItem("aoi-locale") === "zh-CN" ? "zh-CN" : "en",
@@ -93,6 +95,7 @@ export function registerHelpCenter(Alpine) {
     async init() {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
       document.documentElement.lang = this.locale;
+      window.addEventListener("popstate", () => this.selectFromUrl());
       const params = new URLSearchParams(location.search);
       if (params.get("preview") === "1") {
         const role = params.get("role") === "intern" ? "intern" : "admin";
@@ -158,6 +161,11 @@ export function registerHelpCenter(Alpine) {
     statusClass(status) { return { published: "status-approved", draft: "status-partial", archived: "status-blocked" }[status] || "status-assigned"; },
     articleTitle(slug) { return this.text(this.articles.find((article) => article.slug === slug)?.title) || slug; },
     focusSearch() { this.$nextTick(() => this.$refs.search?.focus()); },
+    handleSearchShortcut(event) {
+      if (!event.metaKey && !event.ctrlKey) return;
+      event.preventDefault();
+      this.focusSearch();
+    },
     toggleTheme() {
       this.dark = !this.dark;
       localStorage.setItem("aoi-theme", this.dark ? "dark" : "light");
@@ -182,29 +190,58 @@ export function registerHelpCenter(Alpine) {
     },
     selectFromUrl() {
       const slug = new URLSearchParams(location.search).get("article");
-      if (slug) this.selectArticleBySlug(slug);
+      this.selectedArticle = slug ? this.allArticles.find((article) => article.slug === slug) || null : null;
     },
     selectArticle(article) {
       this.selectedArticle = article;
       const url = new URL(location.href);
       url.searchParams.set("article", article.slug);
-      window.history.replaceState({}, "", url);
+      window.history.pushState({ article: article.slug }, "", url);
       this.$nextTick(() => document.querySelector(".helpcenter-reader")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     },
     selectArticleBySlug(slug) {
       const article = this.allArticles.find((item) => item.slug === slug);
       if (article) this.selectArticle(article);
     },
+    closeArticle() {
+      if (!this.selectedArticle) return;
+      this.selectedArticle = null;
+      const url = new URL(location.href);
+      url.searchParams.delete("article");
+      window.history.pushState({}, "", url);
+    },
     openEditor(article = null) {
       if (this.access?.role !== "admin") return;
+      this.editorReturnFocus = document.activeElement;
       this.editorDraft = structuredClone(article || createArticleDraft());
       this.tagsText = (this.editorDraft.tags || []).join(", ");
       this.editorNotice = null;
+      this.publicationNotice = null;
       this.editorOpen = true;
+      this.$nextTick(() => document.querySelector(".help-editor-drawer button")?.focus());
     },
     closeEditor() {
       this.editorOpen = false;
       this.editorNotice = null;
+      const returnFocus = this.editorReturnFocus;
+      this.editorReturnFocus = null;
+      this.$nextTick(() => returnFocus?.focus?.());
+    },
+    trapEditorFocus(event) {
+      if (!this.editorOpen) return;
+      const container = document.querySelector(".help-editor-drawer");
+      if (!container) return;
+      const focusable = [...container.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter((element) => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     },
     addEditorBlock(locale) { this.editorDraft.body[locale].push({ type: "steps", title: "", items: [] }); },
     removeEditorBlock(locale, index) {
@@ -250,7 +287,10 @@ export function registerHelpCenter(Alpine) {
         this.selectedArticle = saved;
         this.editorDraft = structuredClone(saved);
         this.editorNotice = { tone: "success", text: targetStatus === "published" ? "Article published." : targetStatus === "archived" ? "Article archived." : "Draft saved." };
-        if (targetStatus !== "draft") this.closeEditor();
+        if (targetStatus !== "draft") {
+          this.publicationNotice = { tone: "success", text: this.editorNotice.text };
+          this.closeEditor();
+        }
       } catch (reason) {
         this.editorNotice = { tone: "error", text: readableError(reason, "Unable to save the article.") };
       } finally {
@@ -266,6 +306,7 @@ export function registerHelpCenter(Alpine) {
           : normalizeArticle(await setHelpArticleStatus(this.editorDraft.id, status, this.editorDraft.version));
         this.articles = this.articles.map((article) => article.id === saved.id ? saved : article);
         this.selectedArticle = saved;
+        this.publicationNotice = { tone: "success", text: status === "published" ? "Article published." : status === "archived" ? "Article archived." : "Draft saved." };
         this.closeEditor();
       } catch (reason) {
         this.editorNotice = { tone: "error", text: readableError(reason, "Unable to change the article status.") };

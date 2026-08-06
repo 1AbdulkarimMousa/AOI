@@ -1,3 +1,5 @@
+import { isSafeHttpUrl } from "./core.js";
+
 export const PMF_LAYERS = [
   { code: "H1", name: "Need Truth" },
   { code: "H2", name: "Current Solution Gap" },
@@ -10,7 +12,7 @@ function present(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
-export function validateResearchRecord(type, record, workflowStatus = "draft") {
+export function validateResearchRecord(type, record, workflowStatus = "draft", context = {}) {
   const errors = [];
   const submitting = workflowStatus === "submitted";
 
@@ -38,6 +40,7 @@ export function validateResearchRecord(type, record, workflowStatus = "draft") {
     if (submitting && !present(record.limitations)) {
       errors.push("Record the evidence limitations before submission.");
     }
+    if (present(record.sourceLink) && !isSafeHttpUrl(record.sourceLink)) errors.push("Use an http(s) source link.");
   }
 
   if (type === "product_event") {
@@ -59,9 +62,31 @@ export function validateResearchRecord(type, record, workflowStatus = "draft") {
     if (submitting && ![record.respondentId, record.sessionId, record.sourceLink].some(present)) {
       errors.push("Add a respondent, session, or source link before submission.");
     }
+    if (present(record.sourceLink) && !isSafeHttpUrl(record.sourceLink)) errors.push("Use an http(s) source link.");
+    const definition = (context.definitions || []).find((item) => item.id === record.definitionId);
+    if (definition) {
+      const valueFields = { numeric: "numericValue", boolean: "booleanValue", text: "textValue" };
+      const incompatible = Object.entries(valueFields).some(([valueType, field]) => valueType !== definition.valueType && present(record[field]));
+      if (incompatible) errors.push("Clear values that do not match the selected metric type.");
+    }
+  }
+
+  if (["evidence", "observation"].includes(type) && present(record.sessionId)) {
+    const session = (context.sessions || []).find((item) => item.id === record.sessionId);
+    if (!session) errors.push("Choose a valid research session.");
+    else if (present(record.respondentId) && session.respondentId !== record.respondentId) errors.push("Choose a session belonging to the selected respondent.");
   }
 
   return errors;
+}
+
+export function normalizeObservationValues(record, definition) {
+  const normalized = { ...record };
+  const valueFields = { numeric: "numericValue", boolean: "booleanValue", text: "textValue" };
+  for (const [valueType, field] of Object.entries(valueFields)) {
+    if (valueType !== definition?.valueType) normalized[field] = "";
+  }
+  return normalized;
 }
 
 function summarize(definition, observations, segmentCode) {
@@ -85,7 +110,13 @@ function summarize(definition, observations, segmentCode) {
     return { display: value.toFixed(1), sampleSize: numeric.length, value };
   }
 
-  const latest = values.findLast((item) => present(item.textValue));
+  const latest = values
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => present(item.textValue))
+    .sort((a, b) => {
+      const timestampDifference = new Date(b.item.createdAt || 0).getTime() - new Date(a.item.createdAt || 0).getTime();
+      return timestampDifference || a.index - b.index;
+    })[0]?.item;
   return { display: latest?.textValue || "—", sampleSize: values.length, value: latest?.textValue || null };
 }
 

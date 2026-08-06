@@ -18,12 +18,14 @@ import {
   cloneSurveyDefinition,
   createSurveyDefinition,
   createSurveyQuestion,
+  surveyChoiceValues,
   surveyQuestions,
   validateSurveyDefinition,
 } from "./domain.js";
 import { buildResponseCsv, exportSurveyPackage, importSurveyPackage } from "./import-export.js";
 
 export const SURVEY_QUESTION_TYPES = [
+  ["content", "Instruction / concept"],
   ["short_text", "Short answer"], ["long_text", "Long answer"], ["number", "Number"],
   ["email", "Email"], ["phone", "Phone"], ["url", "URL"], ["date", "Date"], ["time", "Time"],
   ["single_choice", "Single choice"], ["multiple_choice", "Multiple choice"], ["dropdown", "Dropdown"],
@@ -98,26 +100,60 @@ export function createSurveyWorkspaceState() {
     surveyTab: "library",
     surveyLibrary: { assets: [], reviewCount: 0 },
     surveyLibraryQuery: "",
+    surveyLibraryView: "all",
+    surveyLibraryFilter: "all",
     surveyWorkspace: null,
     surveyDefinition: null,
     surveySelectedBlockId: null,
     surveyQuestionType: "short_text",
     surveyQuestionTypes: SURVEY_QUESTION_TYPES,
     surveyNew: { open: false, assetType: "survey", titleEn: "", titleZh: "" },
-    surveyLinkForm: { label: "Primary link", mode: "public", identityMode: "anonymous", maxResponses: "", opensAt: "", closesAt: "" },
+    surveyLinkForm: { label: "Primary link", mode: "public", identityMode: "anonymous", maxResponses: "", opensAt: "", closesAt: "", allowedOrigins: "" },
     surveyCreatedLink: null,
     surveyInvitationForm: { name: "", email: "" },
+    surveyInvitationLinkId: "",
     surveyCreatedInvitation: null,
     surveyPopulation: "approved",
     surveyAnalysis: null,
+    surveyAnalysisTab: "overview",
     surveyReviewNotes: {},
     surveySelectedResponse: null,
     surveyPromotionSegment: "",
     surveyImportNotice: null,
     surveyAutosaveTimer: null,
+    surveyBeforeUnloadBound: false,
+    surveyPreviewOpen: false,
+    surveyPreviewAnswers: {},
+    surveyPreviewSectionIndex: 0,
+    surveyEditGeneration: 0,
+    surveyQueuedSave: false,
+    surveySavePromise: null,
+    surveyAssetRequestSequence: 0,
+    surveyAnalysisRequestSequence: 0,
 
     surveyText(value) { return value?.[this.locale === "zh-CN" ? "zh" : "en"] || value?.en || ""; },
-    surveyQuestions() { return surveyQuestions(this.surveyDefinition || { blocks: [] }); },
+    surveyQuestions(definition = this.surveyDefinition) {
+      const questions = surveyQuestions(definition || { blocks: [] });
+      return this.surveyTab === "analyze" ? questions.filter((question) => question.privacy?.classification !== "direct_identifier") : questions;
+    },
+    responseSurveyDefinition(response = this.surveySelectedResponse) { return response && response.versionDefinition || this.surveyDefinition || { blocks: [] }; },
+    responseSurveyQuestions(response = this.surveySelectedResponse) { return this.surveyQuestions(this.responseSurveyDefinition(response)); },
+    filteredSurveyAssets() {
+      const query = this.surveyLibraryQuery.trim().toLowerCase();
+      const currentUserId = this.user?.id || this.access?.userId;
+      return (this.surveyLibrary.assets || []).filter((asset) => {
+        if (this.surveyLibraryView === "templates" && asset.assetType !== "template") return false;
+        if (this.surveyLibraryView === "assigned" && asset.assignedTo !== currentUserId) return false;
+        if (this.surveyLibraryView === "review" && !["awaiting_approval", "submitted", "in_review"].includes(asset.status)) return false;
+        if (this.surveyLibraryView === "archived" && !asset.archivedAt) return false;
+        if (this.surveyLibraryView !== "archived" && asset.archivedAt) return false;
+        if (this.surveyLibraryFilter === "draft" && asset.status !== "draft") return false;
+        if (this.surveyLibraryFilter === "published" && asset.status !== "published") return false;
+        if (this.surveyLibraryFilter === "review" && !["awaiting_approval", "submitted", "in_review"].includes(asset.status)) return false;
+        if (!query) return true;
+        return [asset.title?.en, asset.title?.zh, asset.ownerName, ...(asset.tags || [])].some((value) => String(value || "").toLowerCase().includes(query));
+      });
+    },
     selectedSurveyBlock() { return findBlock(this.surveyDefinition, this.surveySelectedBlockId); },
     selectedSurveyQuestion() {
       const block = this.selectedSurveyBlock();
@@ -142,6 +178,10 @@ export function createSurveyWorkspaceState() {
           assets: [{ id: "demo-survey", assetType: "survey", title: { en: "Concept value study", zh: "概念价值研究" }, status: "published", tags: ["H3", "concept"], responseCount: 86, approvedCount: 64, draftRevision: 4, publishedVersion: 1, updatedAt: new Date().toISOString() }],
           reviewCount: 1,
         } : await loadSurveyLibrary();
+        if (!this.surveyBeforeUnloadBound) {
+          window.addEventListener("beforeunload", (event) => this.handleSurveyBeforeUnload(event));
+          this.surveyBeforeUnloadBound = true;
+        }
         this.surveyReady = true;
       } catch (reason) {
         this.surveyError = readableError(reason, "Unable to load surveys.");
@@ -150,34 +190,64 @@ export function createSurveyWorkspaceState() {
       }
     },
 
-    setSurveyTab(tab) {
+    async setSurveyTab(tab) {
+      if (tab !== this.surveyTab && !await this.confirmSurveyNavigation()) return;
       this.surveyTab = tab;
       if (tab === "analyze" && this.surveyWorkspace?.asset?.id) this.refreshSurveyAnalysis();
     },
 
+    setSurveyLibraryView(view) { this.surveyLibraryView = view; },
+    setSurveyLibraryFilter(filter) { this.surveyLibraryFilter = filter; },
+    setSurveyAnalysisTab(tab) { this.surveyAnalysisTab = tab; },
+    handleSurveyBeforeUnload(event) {
+      if (!this.surveyDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    },
+    async confirmSurveyNavigation() {
+      if (!this.surveyDirty) return true;
+      if (!window.confirm("Save your survey changes before leaving this view?")) return false;
+      return await this.saveCurrentSurvey();
+    },
+
+    applySurveyWorkspace(workspace) {
+      const selectedId = this.surveySelectedResponse?.id;
+      this.surveyWorkspace = workspace;
+      this.surveySelectedResponse = workspace?.submissions?.find((response) => response.id === selectedId) || null;
+      const invitedLinks = (workspace?.links || []).filter((link) => link.mode === "invited" && link.status === "active");
+      if (!invitedLinks.some((link) => link.id === this.surveyInvitationLinkId)) this.surveyInvitationLinkId = invitedLinks[0]?.id || "";
+    },
+
     async openSurveyAsset(asset) {
+      if (!await this.confirmSurveyNavigation()) return;
+      const requestSequence = ++this.surveyAssetRequestSequence;
       this.surveyLoading = true;
       this.surveyError = "";
       try {
-        this.surveyWorkspace = this.preview ? demoWorkspace() : await loadSurveyWorkspace(asset.id);
+        const workspace = this.preview ? demoWorkspace() : await loadSurveyWorkspace(asset.id);
+        if (requestSequence !== this.surveyAssetRequestSequence) return;
+        this.applySurveyWorkspace(workspace);
         this.surveyDefinition = cloneSurveyDefinition(this.surveyWorkspace.draft.definition);
         this.surveySelectedBlockId = this.surveyDefinition.blocks[0]?.id || null;
         this.surveyTab = "builder";
         this.surveyDirty = false;
         this.surveyAnalysis = null;
       } catch (reason) {
+        if (requestSequence !== this.surveyAssetRequestSequence) return;
         this.surveyError = readableError(reason, "Unable to open this survey.");
       } finally {
-        this.surveyLoading = false;
+        if (requestSequence === this.surveyAssetRequestSequence) this.surveyLoading = false;
       }
     },
 
-    closeSurveyAsset() {
+    async closeSurveyAsset() {
+      if (!await this.confirmSurveyNavigation()) return;
       this.surveyWorkspace = null;
       this.surveyDefinition = null;
       this.surveyTab = "library";
       this.surveyCreatedLink = null;
       this.surveyNotice = null;
+      this.surveySelectedResponse = null;
     },
 
     async createSurveyFromForm() {
@@ -256,6 +326,47 @@ export function createSurveyWorkspaceState() {
       question.options = question.options.filter((option) => option.id !== optionId);
       this.markSurveyDirty();
     },
+    toggleSurveyOther(question) {
+      if (!["single_choice", "multiple_choice", "dropdown", "yes_no"].includes(question.type)) {
+        this.surveyNotice = { tone: "error", text: "Attached Other answers are supported for choice and dropdown questions only." };
+        return;
+      }
+      if (question.other) question.other = null;
+      else {
+        let option = (question.options || []).find((item) => item.id === "other");
+        if (!option) {
+          option = { id: "other", label: { en: "Other", zh: "其他" }, score: 0 };
+          question.options.push(option);
+        }
+        question.other = { optionId: option.id, required: false, label: { en: "Please specify", zh: "请说明" } };
+      }
+      this.markSurveyDirty();
+    },
+    toggleSurveyExclusiveOption(question, optionId) {
+      question.validation ||= {};
+      const values = new Set(question.validation.exclusiveOptionIds || []);
+      if (values.has(optionId)) values.delete(optionId); else values.add(optionId);
+      question.validation.exclusiveOptionIds = [...values];
+      this.markSurveyDirty();
+    },
+    addSurveyDimension(question, dimension) {
+      question[dimension] ||= [];
+      const prefix = dimension === "rows" ? "row" : "column";
+      question[dimension].push({ id: `${prefix}-${globalThis.crypto.randomUUID()}`, label: { en: `${prefix === "row" ? "Row" : "Column"} ${question[dimension].length + 1}`, zh: `${prefix === "row" ? "行" : "列"}${question[dimension].length + 1}` } });
+      this.markSurveyDirty();
+    },
+    removeSurveyDimension(question, dimension, dimensionId) {
+      if ((question[dimension] || []).length <= 1) return;
+      question[dimension] = question[dimension].filter((item) => item.id !== dimensionId);
+      this.markSurveyDirty();
+    },
+    toggleSurveyCalculationReference(question, questionId) {
+      question.calculation ||= { operator: "sum", questionIds: [] };
+      const values = new Set(question.calculation.questionIds || []);
+      if (values.has(questionId)) values.delete(questionId); else values.add(questionId);
+      question.calculation.questionIds = [...values];
+      this.markSurveyDirty();
+    },
     setSurveyVisibility(question, sourceId, value) {
       question.visibility = sourceId ? { all: [{ questionId: sourceId, operator: "equals", value }] } : null;
       this.markSurveyDirty();
@@ -263,6 +374,7 @@ export function createSurveyWorkspaceState() {
     normalizeSelectedSurveyQuestion() {
       const question = this.selectedSurveyQuestion();
       if (!question) return;
+      if (question.type === "content") return;
       const defaults = createSurveyQuestion(question.type);
       if (["single_choice", "multiple_choice", "dropdown", "yes_no", "ranking"].includes(question.type) && (!Array.isArray(question.options) || question.options.length < 2)) question.options = defaults.options;
       if (["matrix_single", "matrix_multiple"].includes(question.type)) {
@@ -275,37 +387,52 @@ export function createSurveyWorkspaceState() {
     },
     markSurveyDirty() {
       this.normalizeSelectedSurveyQuestion();
+      this.surveyEditGeneration += 1;
       this.surveyDirty = true;
+      if (this.surveySaving) this.surveyQueuedSave = true;
       this.surveyNotice = { tone: "info", text: "Unsaved changes" };
       window.clearTimeout(this.surveyAutosaveTimer);
       if (!this.preview) this.surveyAutosaveTimer = window.setTimeout(() => this.saveCurrentSurvey(), 1200);
     },
     async saveCurrentSurvey() {
-      if (!this.surveyWorkspace || this.surveySaving) return false;
+      if (!this.surveyWorkspace) return false;
+      if (this.surveySaving) {
+        this.surveyQueuedSave = true;
+        const activeResult = await this.surveySavePromise;
+        return this.surveyDirty ? this.saveCurrentSurvey() : activeResult;
+      }
       if (!this.surveyDirty) return true;
       const validation = validateSurveyDefinition(this.surveyDefinition);
       if (!validation.valid) {
         this.surveyNotice = { tone: "error", text: `${validation.errors.length} definition issue(s) must be fixed before approval.` };
       }
+      const savedGeneration = this.surveyEditGeneration;
+      const definition = cloneSurveyDefinition(this.surveyDefinition);
       this.surveySaving = true;
-      try {
+      this.surveyQueuedSave = false;
+      this.surveySavePromise = (async () => {
+        try {
         if (this.preview) {
           this.surveyWorkspace.draft.revision += 1;
-          this.surveyWorkspace.draft.definition = cloneSurveyDefinition(this.surveyDefinition);
+          this.surveyWorkspace.draft.definition = definition;
         } else {
-          const result = await saveSurveyDraft(this.surveyWorkspace.asset.id, this.surveyDefinition, this.surveyWorkspace.draft.revision);
+          const result = await saveSurveyDraft(this.surveyWorkspace.asset.id, definition, this.surveyWorkspace.draft.revision);
           this.surveyWorkspace.draft.revision = result.revision;
           this.surveyWorkspace.draft.updatedAt = result.updatedAt;
         }
-        this.surveyDirty = false;
+        if (savedGeneration === this.surveyEditGeneration) this.surveyDirty = false;
         this.surveyNotice = { tone: validation.valid ? "success" : "warning", text: validation.valid ? "Draft saved" : "Draft saved with validation issues" };
         return true;
-      } catch (reason) {
+        } catch (reason) {
         this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to save the draft.") };
         return false;
-      } finally {
-        this.surveySaving = false;
-      }
+        }
+      })();
+      const result = await this.surveySavePromise;
+      this.surveySavePromise = null;
+      this.surveySaving = false;
+      if (this.surveyQueuedSave && this.surveyDirty) return this.saveCurrentSurvey();
+      return result;
     },
     async submitCurrentSurvey() {
       const validation = validateSurveyDefinition(this.surveyDefinition);
@@ -328,26 +455,24 @@ export function createSurveyWorkspaceState() {
         this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to submit the version.") };
       } finally { this.surveySaving = false; }
     },
-    async reviewCurrentSurvey(action) {
-      const version = this.activeSurveyVersion("submitted");
+    async reviewCurrentSurvey(version, action) {
       if (!version) return;
       try {
         if (this.preview) version.status = action === "approve" ? "approved" : "rejected";
         else {
           await reviewSurveyVersion(version.id, action, "Reviewed in the survey workspace.");
-          this.surveyWorkspace = await loadSurveyWorkspace(this.surveyWorkspace.asset.id);
+          this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
         }
         this.surveyNotice = { tone: "success", text: `Version ${action}d.` };
       } catch (reason) { this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to review the version.") }; }
     },
-    async publishCurrentSurvey() {
-      const version = this.activeSurveyVersion("approved");
+    async publishCurrentSurvey(version) {
       if (!version) return;
       try {
         if (this.preview) version.status = "published";
         else {
           await publishSurveyVersion(version.id);
-          this.surveyWorkspace = await loadSurveyWorkspace(this.surveyWorkspace.asset.id);
+          this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
         }
         this.surveyNotice = { tone: "success", text: "The immutable survey version is published." };
       } catch (reason) { this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to publish the survey.") }; }
@@ -366,9 +491,11 @@ export function createSurveyWorkspaceState() {
         const result = this.preview ? { id: "preview-link", token: "preview-survey-token-000000000000000000000000", mode: this.surveyLinkForm.mode, identityMode: this.surveyLinkForm.identityMode, status: "active" }
           : await createSurveyLink(version.id, {
               ...this.surveyLinkForm,
-              settings: { maxResponses: this.surveyLinkForm.maxResponses, opensAt: this.surveyLinkForm.opensAt, closesAt: this.surveyLinkForm.closesAt, allowedOrigins: this.surveyLinkForm.mode === "embed" ? [location.origin] : [] },
+              settings: { maxResponses: this.surveyLinkForm.maxResponses, opensAt: this.surveyLinkForm.opensAt, closesAt: this.surveyLinkForm.closesAt, allowedOrigins: this.surveyLinkForm.mode === "embed" ? this.surveyLinkForm.allowedOrigins.split(/[\s,]+/).filter(Boolean).map((value) => new URL(value).origin) : [] },
             });
         this.surveyCreatedLink = { ...result, url: `${location.origin}${pageUrl(import.meta.env.BASE_URL, "survey.html")}#token=${result.token}` };
+        this.surveyInvitationLinkId = result.mode === "invited" ? result.id : this.surveyInvitationLinkId;
+        if (!this.preview) this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
         this.surveyNotice = { tone: "success", text: "Secure link created. The token is shown only now." };
       } catch (reason) { this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to create the link.") }; }
     },
@@ -378,10 +505,11 @@ export function createSurveyWorkspaceState() {
       this.surveyNotice = { tone: "success", text: "Survey link copied." };
     },
     async createCurrentSurveyInvitation() {
-      if (!this.surveyCreatedLink?.id || !this.surveyInvitationForm.email.trim()) return;
+      const linkId = this.surveyInvitationLinkId || this.surveyCreatedLink?.id;
+      if (!linkId || !this.surveyInvitationForm.email.trim()) return;
       try {
         const result = this.preview ? { id: "preview-invitation", token: `invite-${globalThis.crypto.randomUUID().replaceAll("-", "")}`, status: "queued" }
-          : await createSurveyInvitation(this.surveyCreatedLink.id, this.surveyInvitationForm.name, this.surveyInvitationForm.email);
+          : await createSurveyInvitation(linkId, this.surveyInvitationForm.name, this.surveyInvitationForm.email);
         this.surveyCreatedInvitation = {
           ...result,
           url: `${location.origin}${pageUrl(import.meta.env.BASE_URL, "survey.html")}#token=${result.token}&invite=${result.token}`,
@@ -401,12 +529,12 @@ export function createSurveyWorkspaceState() {
         if (this.preview) response.status = action === "start_review" ? "in_review" : action === "approve" ? "approved" : action === "exclude" ? "excluded" : response.status;
         else {
           await reviewSurveySubmission(response.id, action, this.surveyReviewNotes[response.id] || "");
-          this.surveyWorkspace = await loadSurveyWorkspace(this.surveyWorkspace.asset.id);
+          this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
         }
       } catch (reason) { this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to review the response.") }; }
     },
     async promoteMappedSurveyAnswers(response) {
-      const mapped = this.surveyQuestions().filter((question) => question.pmfMapping?.metricCode && response.answers?.[question.id] !== undefined);
+      const mapped = this.responseSurveyQuestions(response).filter((question) => question.pmfMapping?.metricCode && Object.hasOwn(response.answers || {}, question.id));
       const segmentCode = this.surveyPromotionSegment || this.data.segments?.[0]?.code;
       if (response.status !== "approved" || !mapped.length || !segmentCode) {
         this.surveyNotice = { tone: "error", text: "Approve the response, choose a segment, and map at least one answered question." };
@@ -423,16 +551,40 @@ export function createSurveyWorkspaceState() {
     },
     async refreshSurveyAnalysis() {
       if (!this.surveyWorkspace?.asset?.id) return;
+      const requestSequence = ++this.surveyAnalysisRequestSequence;
+      const assetId = this.surveyWorkspace.asset.id;
+      const population = this.surveyPopulation;
       try {
-        this.surveyAnalysis = this.preview ? {
-          population: this.surveyPopulation, starts: 92, completed: 86, completionRate: 93,
+        const analysis = this.preview ? {
+          population, starts: 92, completed: 86, completionRate: 93,
           statusCounts: { submitted: 21, in_review: 1, approved: 64 },
           questions: [{ questionId: "demo-need", count: 64, values: ["weekly", "weekly", "monthly", "rarely"] }, { questionId: "demo-value", count: 57, values: [5, 4, 4, 3, 5] }], qualityFlags: [{ submissionId: "response-2", flags: ["speeding"] }],
-        } : await loadSurveyAnalysis(this.surveyWorkspace.asset.id, this.surveyPopulation);
-      } catch (reason) { this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to load analysis.") }; }
+        } : await loadSurveyAnalysis(assetId, population);
+        if (requestSequence === this.surveyAnalysisRequestSequence && this.surveyWorkspace?.asset?.id === assetId && this.surveyPopulation === population) this.surveyAnalysis = analysis;
+      } catch (reason) {
+        if (requestSequence === this.surveyAnalysisRequestSequence) this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to load analysis.") };
+      }
     },
     surveyQuestionSummary(questionId) { return this.surveyAnalysis?.questions?.find((item) => item.questionId === questionId) || { count: 0, values: [] }; },
+    surveyQuestionAggregate(question) {
+      const summaries = (this.surveyAnalysis?.questions || []).filter((item) => item.questionId === question.id);
+      const values = summaries.flatMap((item) => item.values || []);
+      if (["number", "rating", "nps", "likert", "calculated"].includes(question.type)) {
+        const numeric = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        return { kind: "numeric", count: numeric.length, mean: numeric.length ? numeric.reduce((sum, value) => sum + value, 0) / numeric.length : 0, minimum: numeric[0], maximum: numeric.at(-1), median: numeric.length ? numeric[Math.floor(numeric.length / 2)] : null, values: numeric };
+      }
+      if (["short_text", "long_text", "email", "phone", "url", "signature"].includes(question.type)) return { kind: "text", count: values.length, mean: 0, values: values.map(String) };
+      const categorical = values.flatMap((value) => {
+        if (["matrix_single", "matrix_multiple"].includes(question.type) && value && typeof value === "object") return Object.entries(value).flatMap(([row, selection]) => surveyChoiceValues(selection).map((column) => `${row}: ${column}`));
+        return surveyChoiceValues(value);
+      });
+      const counts = new Map();
+      for (const value of categorical) counts.set(String(value), (counts.get(String(value)) || 0) + 1);
+      return { kind: "categorical", count: values.length, mean: 0, values, breakdown: [...counts].map(([label, count]) => ({ label, count, percent: categorical.length ? Math.round(count / categorical.length * 100) : 0 })).sort((a, b) => b.count - a.count) };
+    },
     surveyValueBreakdown(questionId) {
+      const question = this.surveyQuestions().find((item) => item.id === questionId);
+      if (question) return this.surveyQuestionAggregate(question).breakdown || [];
       const values = this.surveyQuestionSummary(questionId).values || [];
       const counts = new Map();
       for (const value of values) {
@@ -446,10 +598,24 @@ export function createSurveyWorkspaceState() {
       download("survey.aoi.json", "application/json", source);
     },
     exportCurrentSurveyResponses() {
-      const exported = buildResponseCsv(this.surveyDefinition, (this.surveyWorkspace.submissions || []).map((response) => ({ submissionId: response.id, status: response.status, answers: response.answers })));
-      download("survey-responses.csv", "text/csv;charset=utf-8", exported.wide);
-      download("survey-codebook.csv", "text/csv;charset=utf-8", exported.codebook);
+      const versions = this.surveyWorkspace.versions || [];
+      for (const version of versions) {
+        const responses = (this.surveyWorkspace.submissions || []).filter((response) => response.versionId === version.id).map((response) => ({ submissionId: response.id, status: response.status, answers: response.answers }));
+        if (!responses.length || !version.definition) continue;
+        const exported = buildResponseCsv(version.definition, responses);
+        download(`survey-responses-v${version.versionNumber}.csv`, "text/csv;charset=utf-8", exported.wide);
+        download(`survey-codebook-v${version.versionNumber}.csv`, "text/csv;charset=utf-8", exported.codebook);
+      }
     },
+    openSurveyPreview() {
+      const previewId = globalThis.crypto.randomUUID();
+      localStorage.setItem(`aoi-survey-preview:${previewId}`, JSON.stringify(this.surveyDefinition));
+      const previewUrl = new URL(pageUrl(import.meta.env.BASE_URL, "survey.html"), location.origin);
+      previewUrl.searchParams.set("preview", previewId);
+      window.open(previewUrl.href, "_blank", "noopener");
+    },
+    closeSurveyPreview() { this.surveyPreviewOpen = false; },
+    setSurveyPreviewAnswer(questionId, value) { this.surveyPreviewAnswers[questionId] = value; },
     async importSurveyDefinition(event) {
       const file = event.target.files?.[0];
       if (!file) return;

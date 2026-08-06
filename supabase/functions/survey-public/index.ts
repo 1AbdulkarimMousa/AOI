@@ -18,6 +18,7 @@ type SurveyRequest = {
   fileName?: string;
   contentType?: string;
   questionId?: string;
+  embedOrigin?: string;
 };
 
 const configuredOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
@@ -51,12 +52,33 @@ function safeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "survey-upload";
 }
 
+const uploadFormats = new Map([
+  ["pdf", { extension: "pdf", contentType: "application/pdf" }],
+  ["jpg", { extension: "jpg", contentType: "image/jpeg" }],
+  ["jpeg", { extension: "jpg", contentType: "image/jpeg" }],
+  ["png", { extension: "png", contentType: "image/png" }],
+  ["txt", { extension: "txt", contentType: "text/plain" }],
+  ["csv", { extension: "csv", contentType: "text/csv" }],
+]);
+
+function normalizeUploadMetadata(fileName: string, suppliedType: string) {
+  const safe = safeName(fileName);
+  const sourceExtension = safe.includes(".") ? safe.split(".").pop()!.toLowerCase() : "";
+  const byExtension = uploadFormats.get(sourceExtension);
+  const byType = [...uploadFormats.values()].find((format) => format.contentType === suppliedType.toLowerCase());
+  const format = byExtension ?? byType;
+  if (!format || byExtension && byType && byExtension.contentType !== byType.contentType) return null;
+  const baseName = safe.replace(/\.[^.]+$/, "") || "survey-upload";
+  return { fileName: `${baseName}.${format.extension}`, extension: format.extension, contentType: format.contentType };
+}
+
 function publicError(message = "") {
   if (message.includes("SURVEY_LINK_UNAVAILABLE")) return { status: 404, code: "SURVEY_LINK_UNAVAILABLE", message: "This survey link is unavailable." };
   if (message.includes("SURVEY_INVITATION")) return { status: 404, code: "SURVEY_INVITATION_REQUIRED", message: "This invitation is unavailable or has already been used." };
   if (message.includes("SURVEY_RESPONSE_CAPACITY_REACHED")) return { status: 409, code: "SURVEY_RESPONSE_CAPACITY_REACHED", message: "This survey has reached its response limit." };
   if (message.includes("SURVEY_RESPONSE_UNAVAILABLE") || message.includes("SURVEY_RESPONSE_LOCKED")) return { status: 409, code: "SURVEY_RESPONSE_UNAVAILABLE", message: "This response can no longer be changed." };
   if (message.includes("SURVEY_IDEMPOTENCY_REQUIRED")) return { status: 400, code: "SURVEY_SUBMISSION_INVALID", message: "The submission could not be verified." };
+  if (message.includes("SURVEY_EMBED_ORIGIN_DENIED")) return { status: 403, code: "SURVEY_EMBED_ORIGIN_DENIED", message: "This survey cannot be embedded on this origin." };
   return { status: 400, code: "SURVEY_REQUEST_INVALID", message: "The survey request could not be completed." };
 }
 
@@ -125,17 +147,23 @@ Deno.serve(async (request) => {
     if (replay.data?.replayed) return json(origin, 200, { data: replay.data });
   }
 
-  if (["save", "submit", "upload"].includes(action)) {
-    const loaded = await client.rpc("rpc_aoi_public_survey_load", { p_token: token, p_invitation_token: body.invitationToken || null });
-    if (loaded.error) {
-      const error = publicError(loaded.error.message);
+  const loaded = await client.rpc("rpc_aoi_public_survey_load", { p_token: token, p_invitation_token: body.invitationToken || null });
+  if (loaded.error) {
+    const error = publicError(loaded.error.message);
+    return json(origin, error.status, { error: error.message, code: error.code });
+  }
+  published = loaded.data as Record<string, unknown>;
+  if (published.mode === "embed") {
+    const linkOrigins = Array.isArray(published.allowedOrigins) ? published.allowedOrigins : [];
+    const requestedOrigin = String(body.embedOrigin || origin);
+    if (!linkOrigins.includes(requestedOrigin)) {
+      const error = publicError("SURVEY_EMBED_ORIGIN_DENIED");
       return json(origin, error.status, { error: error.message, code: error.code });
     }
-    published = loaded.data as Record<string, unknown>;
   }
 
   if (action === "load") {
-    result = await client.rpc("rpc_aoi_public_survey_load", { p_token: token, p_invitation_token: body.invitationToken || null });
+    result = loaded;
   } else if (action === "start") {
     result = await client.rpc("rpc_aoi_public_survey_start", {
       p_token: token,
@@ -170,8 +198,8 @@ Deno.serve(async (request) => {
     });
   } else {
     if (!published) return json(origin, 404, { error: "This survey link is unavailable.", code: "SURVEY_LINK_UNAVAILABLE" });
-    const contentType = String(body.contentType || "");
-    if (!allowedUploadTypes.has(contentType)) return json(origin, 400, { error: "This file type is not allowed." });
+    const upload = normalizeUploadMetadata(String(body.fileName || ""), String(body.contentType || ""));
+    if (!upload || !allowedUploadTypes.has(upload.contentType)) return json(origin, 400, { error: "This file type or extension is not allowed." });
     const uploadQuestion = (published.definition as { blocks?: Array<{ blocks?: Array<{ id?: string; type?: string }> }> }).blocks?.flatMap((section) => section.blocks ?? []).find((question) => question.id === body.questionId);
     if (uploadQuestion?.type !== "upload") return json(origin, 400, { error: "This upload field is unavailable." });
     const validation = await client.rpc("rpc_aoi_public_survey_upload_authorize", {
@@ -182,9 +210,9 @@ Deno.serve(async (request) => {
     });
     if (validation.error) result = validation;
     else {
-      const path = `${validation.data.submissionId}/${body.questionId}/${crypto.randomUUID()}-${safeName(String(body.fileName || "survey-upload"))}`;
+      const path = `${validation.data.submissionId}/${body.questionId}/${crypto.randomUUID()}-${upload.fileName}`;
       const signed = await client.storage.from("aoi-survey-uploads").createSignedUploadUrl(path);
-      result = signed.error ? { data: null, error: signed.error } : { data: { path, token: signed.data.token, signedUrl: signed.data.signedUrl }, error: null };
+      result = signed.error ? { data: null, error: signed.error } : { data: { path, token: signed.data.token, signedUrl: signed.data.signedUrl, fileName: upload.fileName, contentType: upload.contentType }, error: null };
     }
   }
 

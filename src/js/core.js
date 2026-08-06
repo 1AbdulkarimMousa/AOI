@@ -19,8 +19,22 @@ export function routeForRole(role) {
 
 export function csvCell(value) {
   let text = String(value ?? "");
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  if (/^[\u0000-\u0020]*[=+\-@]/.test(text)) text = `'${text}`;
   return `"${text.replaceAll('"', '""')}"`;
+}
+
+export function safeHttpUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return ["http:", "https:"].includes(new URL(text).protocol) ? text : "";
+  } catch {
+    return "";
+  }
+}
+
+export function isSafeHttpUrl(value) {
+  return Boolean(safeHttpUrl(value));
 }
 
 export function initials(name) {

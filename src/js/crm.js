@@ -1,6 +1,9 @@
+import { localDateValue } from "./core.js";
+
 const REQUIRED_CONTACT_FIELDS = ["name", "contactType", "primaryChannel", "sourceUrl", "nextAction", "nextActionDue"];
 const OUTREACH_SECTIONS = new Set(["pipeline", "evidence", "imports"]);
 const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", imports: "imports" };
+const LEGACY_WORKSPACE_VIEWS = { research: "collect", pmf: "analyze", "daily-eod": "eod", "end-of-day": "eod" };
 
 export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
 
@@ -14,7 +17,8 @@ export function resolveCrmWorkspaceRoute({ view, tab, section, defaultView } = {
     };
   }
 
-  const resolvedView = view || defaultView;
+  const requestedView = view || defaultView;
+  const resolvedView = LEGACY_WORKSPACE_VIEWS[requestedView] || requestedView;
   const crmTab = resolvedView === "crm" && ["recruitment", "outreach"].includes(tab) ? tab : "contacts";
   const hasValidOutreachSection = OUTREACH_SECTIONS.has(section);
   const hasNonCanonicalTab = resolvedView === "crm" && Boolean(tab) && !["recruitment", "outreach"].includes(tab);
@@ -25,7 +29,7 @@ export function resolveCrmWorkspaceRoute({ view, tab, section, defaultView } = {
     view: resolvedView,
     crmTab,
     outreachSection: crmTab === "outreach" && hasValidOutreachSection ? section : "pipeline",
-    normalize: hasNonCanonicalTab || hasNonCanonicalSection,
+    normalize: Boolean(LEGACY_WORKSPACE_VIEWS[requestedView]) || hasNonCanonicalTab || hasNonCanonicalSection,
   };
 }
 
@@ -52,7 +56,7 @@ export function contactCompleteness(contact = {}) {
   return Math.round((complete / REQUIRED_CONTACT_FIELDS.length) * 100);
 }
 
-export function buildTodayQueue(contacts = [], today = new Date().toISOString().slice(0, 10)) {
+export function buildTodayQueue(contacts = [], today = localDateValue()) {
   return contacts
     .filter((contact) => contact.lifecycle !== "paused")
     .map((contact) => {

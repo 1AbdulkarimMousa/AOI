@@ -85,7 +85,7 @@ test("exports candidates as formula-safe CSV and JSON", () => {
 
   const exported = buildCandidateExport(candidates);
 
-  assert.match(exported.csv, /^\uFEFFexternalId,category,name,platforms,reach,tier,contactReadiness,contactChannel,contactDetail,sourceUrl,pmfCandidate,ownerName,outreachStatus,firstOutreach,nextStepDue\r\n/);
+  assert.match(exported.csv, /^\uFEFFexternalId,source,category,name,platforms,reach,tier,creatorType,contentFit,fitLevel,contactReadiness,contactChannel,contactDetail,sourceUrl,pmfCandidate,pmfRationale,priorityScore,priorityBand,ownerName,outreachStatus,interestLevel,preferredCollaboration,deckIntroduced,pmfAsked,firstOutreach,followUp1,followUp2,responseDate,nextStep,nextStepDue,notes,sourceUpdatedOn\r\n/);
   assert.match(exported.csv, /"'=unsafe"/);
   assert.deepEqual(JSON.parse(exported.json), candidates);
 });

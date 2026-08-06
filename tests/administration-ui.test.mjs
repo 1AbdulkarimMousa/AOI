@@ -71,6 +71,46 @@ test("supports invite, temporary-password, archive, restore, and session revocat
   assert.match(source, /action === "import"/);
 });
 
+test("creates secure one-time onboarding credentials without a shared fallback", async () => {
+  const [source, template, controller] = await Promise.all([
+    readFile(new URL("supabase/functions/admin-create-user/index.ts", root), "utf8"),
+    readFile(new URL("src/js/administration-template.js", root), "utf8"),
+    readFile(new URL("src/js/administration.js", root), "utf8"),
+  ]);
+
+  assert.doesNotMatch(source, /123456/);
+  assert.match(source, /accessMethod === "temporary_password"\s*\? generateTemporaryPassword\(\)/);
+  assert.match(source, /\.\.\.\(accessMethod === "temporary_password" \? \{ temporaryPassword: generatedPassword \} : \{\}\)/);
+  assert.match(template, /I saved this one-time password/);
+  assert.match(template, /finishPersonCreation/);
+  assert.match(controller, /credentialAcknowledged/);
+  assert.match(controller, /createdCredential/);
+});
+
+test("guards person detail races, includes password setup status, and reconciles partial archives", async () => {
+  const [source, template, edge] = await Promise.all([
+    readFile(new URL("src/js/administration.js", root), "utf8"),
+    readFile(new URL("src/js/administration-template.js", root), "utf8"),
+    readFile(new URL("supabase/functions/admin-create-user/index.ts", root), "utf8"),
+  ]);
+
+  assert.match(source, /personRequestId/);
+  assert.match(source, /requestId !== this\.personRequestId/);
+  assert.match(template, /value="password_change_required"/);
+  assert.match(edge, /reconciliationRequired:\s*true/);
+  assert.match(source, /result\.reconciliationRequired/);
+  assert.match(source, /await this\.refresh\(\)/);
+});
+
+test("exposes accessible administration tab state", async () => {
+  const template = await readFile(new URL("src/js/administration-template.js", root), "utf8");
+
+  assert.match(template, /class="administration-tabs"[^>]*role="tablist"/);
+  assert.match(template, /role="tab"[^>]*:aria-selected="section===item\.id"/);
+  assert.match(template, /class="admin-person-tabs"/);
+  assert.match(await readFile(new URL("src/js/administration.js", root), "utf8"), /apply\("\.admin-person-tabs"/);
+});
+
 test("activates invitations and blocks temporary-password users until they choose a new password", async () => {
   const [auth, login, page] = await Promise.all([
     readFile(new URL("src/js/auth.js", root), "utf8"),

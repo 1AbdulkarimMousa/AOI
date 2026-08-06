@@ -47,7 +47,8 @@ export function validateDailyEodBrief(brief) {
   const priorities = brief.tomorrowPriorities || [];
   if (priorities.length !== 3 || priorities.some((priority) => !String(priority || "").trim())) errors.push("Add exactly three priorities for tomorrow.");
   if (!["on_track", "at_risk", "off_track"].includes(brief.projectStatus)) errors.push("Choose the project status.");
-  const validEvidence = (brief.evidenceLinks || []).length > 0 && brief.evidenceLinks.every((link) => {
+  const evidence = (brief.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim());
+  const validEvidence = evidence.length > 0 && evidence.every((link) => {
     if (!String(link.label || "").trim()) return false;
     try {
       return ["http:", "https:"].includes(new URL(link.url).protocol);

@@ -97,6 +97,8 @@ export function registerAdministration(Alpine) {
     archiveForm: { replacementUserId: "", departureDate: "", reason: "" },
     personForm: createPersonDraft(),
     personNotice: null,
+    createdCredential: "",
+    credentialAcknowledged: false,
     passwordNotice: null,
     passwordBusy: false,
     selfPasswordForm: createSelfPasswordDraft(),
@@ -114,6 +116,7 @@ export function registerAdministration(Alpine) {
     dataNotice: null,
     toast: null,
     drawerReturnFocus: null,
+    personRequestId: 0,
     guideIndex: 0,
     guides: [
       { title: "Add secure access", purpose: "Create the login and operational profile together.", steps: ["Choose Admin or Intern.", "Use an email invitation by default, or a temporary password when necessary.", "Record locale, timezone, manager, skills, availability, and start date.", "Review the setup before creating access."], section: "people", action: "Open people" },
@@ -131,6 +134,7 @@ export function registerAdministration(Alpine) {
         this.access = { userId: "preview-admin", role: "admin", displayName: "AOI Administrator", organizationName: "AOI Technologics", isOwner: true };
         this.people = structuredClone(previewPeople);
         this.ready = true;
+        this.syncTabAccessibility();
         return;
       }
       try {
@@ -149,6 +153,7 @@ export function registerAdministration(Alpine) {
         this.error = readableError(reason, "Unable to open Administration.");
       } finally {
         this.ready = true;
+        this.syncTabAccessibility();
       }
     },
     get filteredPeople() { return filterAdministrationPeople(this.people, this.filters); },
@@ -183,10 +188,17 @@ export function registerAdministration(Alpine) {
       this.drawerReturnFocus = document.activeElement;
       this.personForm = createPersonDraft();
       this.personNotice = null;
+      this.createdCredential = "";
+      this.credentialAcknowledged = false;
       this.addPersonOpen = true;
-      this.$nextTick(() => [...document.querySelectorAll(".admin-person-drawer")].find((drawer) => drawer.offsetParent !== null)?.querySelector("button")?.focus());
+      this.$nextTick(() => {
+        const drawer = [...document.querySelectorAll(".admin-person-drawer")].find((element) => element.offsetParent !== null);
+        if (drawer) drawer.inert = false;
+        drawer?.querySelector("button")?.focus();
+      });
     },
     async openPerson(person) {
+      const requestId = ++this.personRequestId;
       this.drawerReturnFocus = document.activeElement;
       this.personNotice = null;
       this.passwordNotice = null;
@@ -196,13 +208,22 @@ export function registerAdministration(Alpine) {
       this.archiveForm = { replacementUserId: "", departureDate: new Date().toISOString().slice(0, 10), reason: "" };
       this.personTab = "profile";
       this.selectedPerson = this.preview ? previewPersonDetail(person) : { person: { ...person }, onboarding: [], workload: {}, recentAudit: [] };
+      this.syncTabAccessibility();
       this.$nextTick(() => [...document.querySelectorAll(".admin-person-drawer")].find((drawer) => drawer.offsetParent !== null)?.querySelector("button")?.focus());
       if (!this.preview) {
-        try { this.selectedPerson = await loadAdministrationPerson(person.userId); }
-        catch (reason) { this.personNotice = { tone: "error", text: readableError(reason, "Unable to load this person.") }; }
+        try {
+          const detail = await loadAdministrationPerson(person.userId);
+          if (requestId !== this.personRequestId) return;
+          this.selectedPerson = detail;
+        } catch (reason) {
+          if (requestId !== this.personRequestId) return;
+          this.personNotice = { tone: "error", text: readableError(reason, "Unable to load this person.") };
+        }
       }
     },
-    closeDrawers() {
+    closeDrawers(force = false) {
+      if (!force && this.addPersonOpen && this.createdCredential && !this.credentialAcknowledged) return;
+      this.personRequestId += 1;
       this.addPersonOpen = false;
       this.archiveOpen = false;
       this.selectedPerson = null;
@@ -211,12 +232,38 @@ export function registerAdministration(Alpine) {
       this.selfPasswordForm = createSelfPasswordDraft();
       this.resetPasswordForm = createResetPasswordDraft();
       this.resetPasswordResult = "";
+      this.personForm = createPersonDraft();
+      this.createdCredential = "";
+      this.credentialAcknowledged = false;
       const returnFocus = this.drawerReturnFocus;
       this.drawerReturnFocus = null;
       this.$nextTick(() => returnFocus?.focus?.());
     },
+    finishPersonCreation() {
+      if (!this.createdCredential || !this.credentialAcknowledged) return;
+      this.closeDrawers(true);
+    },
+    syncTabAccessibility() {
+      this.$nextTick(() => {
+        const apply = (selector, selectedIndex) => {
+          const list = document.querySelector(selector);
+          if (!list) return;
+          list.setAttribute("role", "tablist");
+          list.querySelectorAll(":scope > button").forEach((button, index) => {
+            button.setAttribute("role", "tab");
+            button.setAttribute("aria-selected", String(index === selectedIndex));
+            if (!button.dataset.adminTabA11y) {
+              button.dataset.adminTabA11y = "true";
+              button.addEventListener("click", () => this.$nextTick(() => this.syncTabAccessibility()));
+            }
+          });
+        };
+        apply(".administration-tabs", this.sections.findIndex((item) => item.id === this.section));
+        apply(".admin-person-tabs", ["profile", "work", "activity"].indexOf(this.personTab));
+      });
+    },
     trapDrawerFocus(event) {
-      const selector = this.archiveOpen ? ".admin-confirm-dialog" : (this.addPersonOpen || this.selectedPerson) ? ".admin-person-drawer" : null;
+      const selector = (this.archiveOpen || this.createdCredential) ? ".admin-confirm-dialog" : (this.addPersonOpen || this.selectedPerson) ? ".admin-person-drawer" : null;
       const container = selector ? [...document.querySelectorAll(selector)].find((element) => element.offsetParent !== null) : null;
       if (!container) return;
       const focusable = [...container.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter((element) => element.offsetParent !== null);
@@ -233,9 +280,21 @@ export function registerAdministration(Alpine) {
         if (this.preview) throw new Error("Account creation is disabled in preview mode.");
         const input = { ...this.personForm, action: "create", accessMethod: this.personForm.accessMethod === "temporary_password" ? "temporary_password" : "invite", skills: this.personForm.skills.split(",").map((skill) => skill.trim()).filter(Boolean) };
         const result = await createAdminUser(input);
-        this.personNotice = { tone: "success", text: result.temporaryPassword ? `Account created. Temporary password: ${result.temporaryPassword}` : "Invitation sent and onboarding prepared." };
+        this.personNotice = { tone: "success", text: result.temporaryPassword ? "Account created. Save the one-time password before closing." : "Invitation sent and onboarding prepared." };
+        this.createdCredential = result.temporaryPassword || "";
+        this.credentialAcknowledged = false;
+        if (this.createdCredential) this.$nextTick(() => {
+          const drawer = [...document.querySelectorAll(".admin-person-drawer")].find((element) => element.offsetParent !== null);
+          if (drawer) drawer.inert = true;
+          document.querySelector("#created-credential-title")?.closest("[role=dialog]")?.querySelector("input")?.focus();
+        });
         await this.refresh();
-        this.showToast("Person added", `${result.user.display_name} is ready for onboarding.`);
+        if (this.createdCredential) {
+          this.showToast("Person added", `${result.user.display_name} must replace the one-time password at first sign-in.`);
+        } else {
+          this.showToast("Invitation sent", `${result.user.display_name} is ready for onboarding.`);
+          this.closeDrawers(true);
+        }
       } catch (reason) {
         this.personNotice = { tone: "error", text: readableError(reason, "Unable to add this person.") };
       } finally {
@@ -315,11 +374,11 @@ export function registerAdministration(Alpine) {
       try {
         if (this.preview) throw new Error("Archival is disabled in preview mode.");
         const personName = this.selectedPerson.person.displayName;
-        await runAdministrationUserAction("archive", { userId: this.selectedPerson.person.userId, replacementUserId: this.archiveForm.replacementUserId || null, reason: this.archiveForm.reason.trim(), departureDate: this.archiveForm.departureDate });
+        const result = await runAdministrationUserAction("archive", { userId: this.selectedPerson.person.userId, replacementUserId: this.archiveForm.replacementUserId || null, reason: this.archiveForm.reason.trim(), departureDate: this.archiveForm.departureDate });
         this.closeDrawers();
         await this.refresh();
         this.section = "archive";
-        this.showToast("Person archived", `${personName}'s access stopped and historical work was retained.`);
+        this.showToast(result.reconciliationRequired ? "Archive needs reconciliation" : "Person archived", result.message || `${personName}'s access stopped and historical work was retained.`);
       } catch (reason) {
         this.personNotice = { tone: "error", text: readableError(reason, "Unable to archive this person.") };
       } finally { this.savingPerson = false; }
