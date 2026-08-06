@@ -535,3 +535,168 @@ export async function reorderHelpArticles(order) {
   if (error) throw new Error(error.message);
   return data;
 }
+
+function rpcError(error, fallback) {
+  if (error) throw new Error(error.message || fallback);
+}
+
+export async function loadChatBootstrap() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_bootstrap");
+  rpcError(error, "Unable to load chat.");
+  return data;
+}
+
+export async function openDirectChat(memberId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_open_direct", { p_member_id: memberId });
+  rpcError(error, "Unable to open the conversation.");
+  return data;
+}
+
+export async function loadChatMessages(conversationId, before = null, limit = 50) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_messages", {
+    p_conversation_id: conversationId,
+    p_before: before,
+    p_limit: limit,
+  });
+  rpcError(error, "Unable to load messages.");
+  return data || [];
+}
+
+export async function persistChatMessage(conversationId, body, { clientNonce, replyToId = null, attachments = [] } = {}) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_send", {
+    p_conversation_id: conversationId,
+    p_body: body,
+    p_client_nonce: clientNonce || globalThis.crypto.randomUUID(),
+    p_reply_to_id: replyToId,
+    p_attachments: attachments,
+  });
+  rpcError(error, "Unable to send the message.");
+  return data;
+}
+
+export async function loadChatMessageByNonce(conversationId, clientNonce) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_message_by_nonce", {
+    p_conversation_id: conversationId,
+    p_client_nonce: clientNonce,
+  });
+  rpcError(error, "Unable to reconcile the message.");
+  return data || null;
+}
+
+export async function editChatMessage(messageId, body) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_edit", { p_message_id: messageId, p_body: body });
+  rpcError(error, "Unable to edit the message.");
+  return data;
+}
+
+export async function deleteChatMessage(messageId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_delete", { p_message_id: messageId });
+  rpcError(error, "Unable to delete the message.");
+  return data;
+}
+
+export async function moderateChatMessage(messageId, reason) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_moderate", {
+    p_message_id: messageId,
+    p_reason: reason,
+    p_action: "remove",
+  });
+  rpcError(error, "Unable to moderate the message.");
+  return data;
+}
+
+export async function toggleChatReaction(messageId, reaction) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_toggle_reaction", {
+    p_message_id: messageId,
+    p_reaction: reaction,
+  });
+  rpcError(error, "Unable to update the reaction.");
+  return data;
+}
+
+export async function markChatRead(conversationId, messageId = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_mark_read", {
+    p_conversation_id: conversationId,
+    p_message_id: messageId,
+  });
+  rpcError(error, "Unable to update read state.");
+  return data;
+}
+
+export async function searchChatMessages(query, conversationId = null, limit = 50) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_chat_search", {
+    p_query: query,
+    p_conversation_id: conversationId,
+    p_limit: limit,
+  });
+  rpcError(error, "Unable to search messages.");
+  return data || [];
+}
+
+export async function updateProfile(profile) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_update_profile", { p_profile: profile });
+  rpcError(error, "Unable to save your profile.");
+  return data;
+}
+
+export async function loadMemberProfile(memberId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_member_profile", { p_member_id: memberId });
+  rpcError(error, "Unable to load the member profile.");
+  return data;
+}
+
+function safeFileName(name, fallback) {
+  return String(name || fallback).replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || fallback;
+}
+
+export async function uploadAvatar(file, organizationId, userId) {
+  const extension = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[file.type];
+  if (!extension) throw new Error("Unsupported profile photo type.");
+  const objectPath = `${organizationId}/${userId}/${globalThis.crypto.randomUUID()}.${extension}`;
+  const { error } = await getSupabaseClient().storage.from("aoi-avatars").upload(objectPath, file, {
+    cacheControl: "900",
+    contentType: file.type,
+    upsert: false,
+  });
+  rpcError(error, "Unable to upload the profile photo.");
+  return { objectPath };
+}
+
+export async function removeAvatarObject(objectPath) {
+  if (!objectPath) return;
+  const { error } = await getSupabaseClient().storage.from("aoi-avatars").remove([objectPath]);
+  rpcError(error, "Unable to remove the profile photo.");
+}
+
+export async function createAvatarSignedUrls(paths, expiresIn = 900) {
+  const uniquePaths = [...new Set((paths || []).filter(Boolean))];
+  if (!uniquePaths.length) return {};
+  const { data, error } = await getSupabaseClient().storage.from("aoi-avatars").createSignedUrls(uniquePaths, expiresIn);
+  rpcError(error, "Unable to load profile photos.");
+  return Object.fromEntries((data || []).filter((item) => item.signedUrl).map((item) => [item.path, item.signedUrl]));
+}
+
+export async function uploadChatAttachment(file, organizationId, conversationId, userId) {
+  const name = safeFileName(file.name, "attachment");
+  const objectPath = `${organizationId}/${conversationId}/${userId}/${globalThis.crypto.randomUUID()}-${name}`;
+  const { error } = await getSupabaseClient().storage.from("aoi-chat").upload(objectPath, file, {
+    cacheControl: "300",
+    contentType: file.type,
+    upsert: false,
+  });
+  rpcError(error, "Unable to upload the attachment.");
+  return { objectPath, fileName: file.name, mimeType: file.type, sizeBytes: file.size };
+}
+
+export async function removeChatAttachments(paths) {
+  const objectPaths = (paths || []).filter(Boolean);
+  if (!objectPaths.length) return;
+  const { error } = await getSupabaseClient().storage.from("aoi-chat").remove(objectPaths);
+  rpcError(error, "Unable to remove the attachment.");
+}
+
+export async function createChatAttachmentUrl(objectPath, expiresIn = 300) {
+  const { data, error } = await getSupabaseClient().storage.from("aoi-chat").createSignedUrl(objectPath, expiresIn);
+  rpcError(error, "Unable to open the attachment.");
+  return data.signedUrl;
+}

@@ -31,6 +31,8 @@ import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillRese
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
+import { createChatState } from "./chat.js";
+import { createProfileState } from "./profile.js";
 
 function today() {
   return localDateValue();
@@ -88,6 +90,8 @@ function downloadCsv(filename, rows) {
 export function registerWorkspace(Alpine) {
   Alpine.data("workspacePage", () => ({
     ...createSurveyWorkspaceState(),
+    ...createChatState(),
+    ...createProfileState(),
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     administrationUrl: pageUrl(import.meta.env.BASE_URL, "administration.html"),
@@ -200,6 +204,7 @@ export function registerWorkspace(Alpine) {
         { id: "today", label: "Today" },
         { id: "eod", label: "End-of-Day Brief" },
         { id: "crm", label: "CRM" },
+        { id: "chat", label: "Chat" },
         { id: "work", label: "My work" },
         { id: "collect", label: "Collect" },
         { id: "surveys", label: "Surveys" },
@@ -248,6 +253,7 @@ export function registerWorkspace(Alpine) {
         this.loading = false;
         if (this.view === "surveys") await this.openSurveyWorkspace();
         if (this.view === "eod") await this.searchDailyEodReports(1);
+        await this.initializeChat();
         return;
       }
 
@@ -277,6 +283,7 @@ export function registerWorkspace(Alpine) {
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
         if (this.view === "eod") await this.searchDailyEodReports(1);
+        await this.initializeChat();
       } catch (reason) {
         this.error = readableError(reason, "Unable to open the AOI workspace.");
         this.ready = true;
@@ -290,6 +297,8 @@ export function registerWorkspace(Alpine) {
       if (this.dailyEodVisibilityHandler) document.removeEventListener("visibilitychange", this.dailyEodVisibilityHandler);
       if (this.dailyEodFocusHandler) window.removeEventListener("focus", this.dailyEodFocusHandler);
       if (this.routePopstateHandler) window.removeEventListener("popstate", this.routePopstateHandler);
+      this.destroyChat();
+      if (this.profilePhotoPreview) URL.revokeObjectURL(this.profilePhotoPreview);
     },
 
     t(key) { return translate(this.locale, key); },
@@ -457,6 +466,7 @@ export function registerWorkspace(Alpine) {
       else this.replaceWorkspaceLocation(this.view);
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
       if (this.view === "surveys") this.openSurveyWorkspace();
+      if (this.view === "chat") this.initializeChat().then(() => this.markSelectedChatRead());
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1445,6 +1455,8 @@ export function registerWorkspace(Alpine) {
       this.hydrateDailyEod(this.data.dailyEod);
       this.dailyEodReportsLoaded = false;
       this.error = "";
+      this.chatReady = false;
+      this.destroyChat().then(() => this.initializeChat());
     },
     exportDashboard() {
       downloadCsv(`aoi-dashboard-${this.locale}.csv`, [
@@ -1462,6 +1474,7 @@ export function registerWorkspace(Alpine) {
     },
     async logout() {
       globalThis.sessionStorage.removeItem(this.researchDraftStorageKey());
+      await this.destroyChat();
       await signOut();
       location.replace(pageUrl(import.meta.env.BASE_URL, "login.html"));
     },

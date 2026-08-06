@@ -41,5 +41,6 @@ begin
   return private.aoi_chat_message_json(v_message);
 end;
 $$;
+
 revoke all on function public.rpc_aoi_chat_moderate(uuid,text,text) from public, anon;
 grant execute on function public.rpc_aoi_chat_moderate(uuid,text,text) to authenticated;

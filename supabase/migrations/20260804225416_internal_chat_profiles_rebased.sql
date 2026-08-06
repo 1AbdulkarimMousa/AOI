@@ -6,6 +6,7 @@ alter table public.profiles add column if not exists phone text;
 alter table public.profiles add column if not exists timezone text not null default 'UTC';
 alter table public.profiles add column if not exists avatar_key text;
 alter table public.profiles add column if not exists avatar_path text;
+
 alter table public.profiles
   add constraint profiles_display_name_length_check check (char_length(trim(display_name)) between 2 and 80),
   add constraint profiles_job_title_length_check check (job_title is null or char_length(job_title) <= 100),
@@ -15,8 +16,11 @@ alter table public.profiles
   add constraint profiles_avatar_key_check check (
     avatar_key is null or avatar_key in ('coral', 'teal', 'blue', 'purple', 'gold', 'slate', 'rose', 'sand')
   );
+
 create schema if not exists private;
-revoke all on schema private from public, anon, authenticated;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
 update public.profiles profile
 set phone = staff.phone,
     timezone = staff.timezone
@@ -24,6 +28,7 @@ from public.staff_profiles staff
 join public.organization_memberships membership
   on membership.organization_id = staff.organization_id and membership.user_id = staff.user_id
 where profile.id = staff.user_id and membership.status = 'active';
+
 create or replace function private.sync_aoi_profile_contact()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
@@ -40,6 +45,7 @@ drop trigger if exists sync_aoi_profile_contact on public.staff_profiles;
 create trigger sync_aoi_profile_contact
 after insert or update of phone, timezone on public.staff_profiles
 for each row execute function private.sync_aoi_profile_contact();
+
 create table public.chat_conversations (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -62,6 +68,7 @@ create unique index chat_conversations_one_team_per_org_idx
   on public.chat_conversations (organization_id) where kind = 'team';
 create index chat_conversations_recent_idx
   on public.chat_conversations (organization_id, last_message_at desc nulls last, created_at desc);
+
 create table public.chat_conversation_members (
   organization_id uuid not null,
   conversation_id uuid not null,
@@ -81,6 +88,7 @@ create table public.chat_conversation_members (
 );
 create index chat_members_user_idx
   on public.chat_conversation_members (user_id, organization_id, left_at, conversation_id);
+
 create table public.chat_messages (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null,
@@ -113,9 +121,11 @@ create unique index chat_messages_client_nonce_idx
 create index chat_messages_conversation_created_idx
   on public.chat_messages (conversation_id, created_at desc, id desc);
 create index chat_messages_search_idx on public.chat_messages using gin (search_vector);
+
 alter table public.chat_conversation_members
   add constraint chat_members_last_read_scope_fk foreign key (conversation_id, last_read_message_id)
   references public.chat_messages (conversation_id, id) on delete set null (last_read_message_id);
+
 create table public.chat_message_reactions (
   organization_id uuid not null,
   conversation_id uuid not null,
@@ -123,6 +133,7 @@ create table public.chat_message_reactions (
   user_id uuid not null,
   reaction text not null check (reaction in ('thumbs_up', 'heart', 'celebrate', 'laugh', 'surprised', 'sad')),
   created_at timestamptz not null default now(),
+  removed_at timestamptz,
   primary key (message_id, user_id, reaction),
   constraint chat_reactions_message_scope_fk foreign key (organization_id, conversation_id, message_id)
     references public.chat_messages (organization_id, conversation_id, id) on delete cascade,
@@ -131,6 +142,7 @@ create table public.chat_message_reactions (
 );
 create index chat_reactions_conversation_idx
   on public.chat_message_reactions (conversation_id, message_id, reaction);
+
 create table public.chat_attachments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null,
@@ -157,6 +169,7 @@ create table public.chat_attachments (
 );
 create index chat_attachments_message_idx
   on public.chat_attachments (message_id, created_at) where deleted_at is null;
+
 create table public.chat_moderation_events (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -172,12 +185,14 @@ create table public.chat_moderation_events (
 );
 create index chat_moderation_org_created_idx
   on public.chat_moderation_events (organization_id, created_at desc);
+
 alter table public.chat_conversations enable row level security;
 alter table public.chat_conversation_members enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.chat_message_reactions enable row level security;
 alter table public.chat_attachments enable row level security;
 alter table public.chat_moderation_events enable row level security;
+
 create or replace function public.aoi_chat_is_participant(
   target_conversation_id uuid,
   target_organization_id uuid
@@ -199,6 +214,7 @@ returns boolean language sql stable security definer set search_path = '' as $$
       and organization.status = 'active'
   );
 $$;
+
 create or replace function public.aoi_chat_topic_authorized(p_topic text)
 returns boolean language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -217,6 +233,7 @@ begin
     and public.aoi_chat_is_participant(v_conversation_id, v_organization_id);
 end;
 $$;
+
 create or replace function public.aoi_chat_storage_authorized(
   p_organization_id text,
   p_conversation_id text,
@@ -243,6 +260,7 @@ begin
   ) and public.aoi_chat_is_participant(v_conversation_id, v_organization_id);
 end;
 $$;
+
 create or replace function public.aoi_profile_avatar_authorized(
   p_organization_id text,
   p_profile_id text
@@ -272,6 +290,7 @@ begin
   );
 end;
 $$;
+
 revoke all on function public.aoi_chat_is_participant(uuid,uuid) from public, anon;
 revoke all on function public.aoi_chat_topic_authorized(text) from public, anon;
 revoke all on function public.aoi_chat_storage_authorized(text,text,text,boolean) from public, anon;
@@ -280,32 +299,41 @@ grant execute on function public.aoi_chat_is_participant(uuid,uuid) to authentic
 grant execute on function public.aoi_chat_topic_authorized(text) to authenticated;
 grant execute on function public.aoi_chat_storage_authorized(text,text,text,boolean) to authenticated;
 grant execute on function public.aoi_profile_avatar_authorized(text,text) to authenticated;
+
 create policy chat_conversations_participant_read on public.chat_conversations
 for select to authenticated
 using (public.aoi_chat_is_participant(id, organization_id));
+
 create policy chat_members_participant_read on public.chat_conversation_members
 for select to authenticated
 using (public.aoi_chat_is_participant(conversation_id, organization_id));
+
 create policy chat_messages_participant_read on public.chat_messages
 for select to authenticated
 using (public.aoi_chat_is_participant(conversation_id, organization_id));
+
 create policy chat_reactions_participant_read on public.chat_message_reactions
 for select to authenticated
 using (public.aoi_chat_is_participant(conversation_id, organization_id));
+
 create policy chat_attachments_participant_read on public.chat_attachments
 for select to authenticated
 using (deleted_at is null and public.aoi_chat_is_participant(conversation_id, organization_id));
+
 create policy chat_moderation_admin_read on public.chat_moderation_events
 for select to authenticated
 using (public.is_org_admin(organization_id));
+
 drop policy if exists profiles_self_or_org_read on public.profiles;
 drop policy if exists profiles_self_read on public.profiles;
 drop policy if exists profiles_self_update on public.profiles;
 create policy profiles_self_read on public.profiles
 for select to authenticated
 using (id = (select auth.uid()));
+
 revoke all on public.profiles from anon, authenticated;
 grant select on public.profiles to authenticated;
+
 revoke all on public.chat_conversations from anon, authenticated;
 revoke all on public.chat_conversation_members from anon, authenticated;
 revoke all on public.chat_messages from anon, authenticated;
@@ -317,10 +345,13 @@ grant select on public.chat_conversation_members to authenticated;
 grant select on public.chat_messages to authenticated;
 grant select on public.chat_message_reactions to authenticated;
 grant select on public.chat_attachments to authenticated;
+grant select on public.chat_moderation_events to authenticated;
+
 insert into public.chat_conversations (organization_id, kind, title)
 select organization.id, 'team', 'Team'
 from public.organizations organization
 on conflict (organization_id) where kind = 'team' do nothing;
+
 insert into public.chat_conversation_members (organization_id, conversation_id, user_id)
 select conversation.organization_id, conversation.id, membership.user_id
 from public.chat_conversations conversation
@@ -329,6 +360,7 @@ join public.organization_memberships membership
 join public.profiles profile on profile.id = membership.user_id and profile.status = 'active'
 where conversation.kind = 'team'
 on conflict (conversation_id, user_id) do update set left_at = null;
+
 create or replace function private.ensure_aoi_team_room()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
@@ -338,6 +370,7 @@ begin
   return new;
 end;
 $$;
+
 create or replace function private.sync_aoi_team_membership()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
@@ -366,14 +399,18 @@ begin
   return new;
 end;
 $$;
+
 revoke all on function private.ensure_aoi_team_room() from public, anon, authenticated;
 revoke all on function private.sync_aoi_team_membership() from public, anon, authenticated;
+
 drop trigger if exists ensure_aoi_team_room on public.organizations;
 create trigger ensure_aoi_team_room after insert on public.organizations
 for each row execute function private.ensure_aoi_team_room();
+
 drop trigger if exists sync_aoi_team_membership on public.organization_memberships;
 create trigger sync_aoi_team_membership after insert or update of status on public.organization_memberships
 for each row execute function private.sync_aoi_team_membership();
+
 create or replace function private.aoi_chat_context()
 returns table (organization_id uuid, role text)
 language sql stable security definer set search_path = '' as $$
@@ -388,6 +425,7 @@ language sql stable security definer set search_path = '' as $$
   order by case membership.role when 'admin' then 1 else 2 end, membership.joined_at, membership.organization_id
   limit 1;
 $$;
+
 create or replace function private.aoi_safe_profile(p_profile public.profiles)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -402,6 +440,7 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     'avatarPath', p_profile.avatar_path
   );
 $$;
+
 create or replace function private.aoi_chat_profile(p_profile public.profiles)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -412,6 +451,7 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     'avatarPath', p_profile.avatar_path
   );
 $$;
+
 create or replace function private.aoi_chat_message_json(p_message public.chat_messages)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -436,7 +476,7 @@ returns jsonb language sql stable security definer set search_path = '' as $$
         select reaction.reaction, count(*) as reaction_count,
           bool_or(reaction.user_id = auth.uid()) as reacted_by_me
         from public.chat_message_reactions reaction
-        where reaction.message_id = p_message.id
+        where reaction.message_id = p_message.id and reaction.removed_at is null
         group by reaction.reaction
       ) grouped
     ), '[]'::jsonb),
@@ -455,6 +495,7 @@ returns jsonb language sql stable security definer set search_path = '' as $$
   )
   from public.profiles profile where profile.id = p_message.sender_id;
 $$;
+
 create or replace function private.aoi_chat_conversation_json(
   p_conversation public.chat_conversations,
   p_user_id uuid
@@ -502,11 +543,13 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     'updatedAt', p_conversation.updated_at
   );
 $$;
+
 revoke all on function private.aoi_chat_context() from public, anon, authenticated;
 revoke all on function private.aoi_safe_profile(public.profiles) from public, anon, authenticated;
 revoke all on function private.aoi_chat_profile(public.profiles) from public, anon, authenticated;
 revoke all on function private.aoi_chat_message_json(public.chat_messages) from public, anon, authenticated;
 revoke all on function private.aoi_chat_conversation_json(public.chat_conversations,uuid) from public, anon, authenticated;
+
 create or replace function public.rpc_aoi_chat_bootstrap()
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -560,6 +603,7 @@ begin
   );
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_open_direct(p_member_id uuid)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -593,6 +637,7 @@ begin
   return private.aoi_chat_conversation_json(v_conversation, auth.uid());
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_messages(
   p_conversation_id uuid,
   p_before timestamptz default null,
@@ -622,6 +667,7 @@ begin
   return v_result;
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_send(
   p_conversation_id uuid,
   p_body text,
@@ -707,6 +753,30 @@ begin
   return private.aoi_chat_message_json(v_message);
 end;
 $$;
+
+create or replace function public.rpc_aoi_chat_message_by_nonce(
+  p_conversation_id uuid,
+  p_client_nonce uuid
+)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_context record;
+  v_result jsonb;
+begin
+  select * into v_context from private.aoi_chat_context();
+  if v_context.organization_id is null
+    or not public.aoi_chat_is_participant(p_conversation_id, v_context.organization_id)
+  then raise exception 'CHAT_CONVERSATION_FORBIDDEN'; end if;
+  select private.aoi_chat_message_json(message) into v_result
+  from public.chat_messages message
+  where message.organization_id = v_context.organization_id
+    and message.conversation_id = p_conversation_id
+    and message.sender_id = auth.uid()
+    and message.client_nonce = p_client_nonce;
+  return v_result;
+end;
+$$;
+
 create or replace function public.rpc_aoi_chat_edit(p_message_id uuid, p_body text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -727,6 +797,7 @@ begin
   return private.aoi_chat_message_json(v_message);
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_delete(p_message_id uuid)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -747,6 +818,7 @@ begin
   return private.aoi_chat_message_json(v_message);
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_moderate(
   p_message_id uuid,
   p_reason text,
@@ -777,7 +849,7 @@ begin
     v_context.organization_id, v_message.conversation_id, v_message.id, auth.uid(), 'remove', v_reason,
     jsonb_build_object(
       'senderId', v_message.sender_id,
-      'bodySha256', encode(digest(v_message.body, 'sha256'), 'hex'),
+      'bodySha256', pg_catalog.encode(extensions.digest(pg_catalog.convert_to(v_message.body, 'UTF8'), 'sha256'), 'hex'),
       'attachmentCount', (select count(*) from public.chat_attachments attachment where attachment.message_id = v_message.id)
     )
   );
@@ -789,6 +861,7 @@ begin
   return private.aoi_chat_message_json(v_message);
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_toggle_reaction(p_message_id uuid, p_reaction text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -806,11 +879,11 @@ begin
     or not public.aoi_chat_is_participant(v_message.conversation_id, v_context.organization_id)
   then raise exception 'CHAT_CONVERSATION_FORBIDDEN'; end if;
 
-  delete from public.chat_message_reactions reaction
-  where reaction.message_id = v_message.id and reaction.user_id = auth.uid() and reaction.reaction = p_reaction;
-  if found then
-    v_added := false;
-  else
+  update public.chat_message_reactions reaction
+  set removed_at = case when reaction.removed_at is null then clock_timestamp() else null end
+  where reaction.message_id = v_message.id and reaction.user_id = auth.uid() and reaction.reaction = p_reaction
+  returning reaction.removed_at is null into v_added;
+  if not found then
     insert into public.chat_message_reactions (
       organization_id, conversation_id, message_id, user_id, reaction
     ) values (
@@ -821,6 +894,7 @@ begin
   return jsonb_build_object('messageId', v_message.id, 'reaction', p_reaction, 'added', v_added);
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_mark_read(
   p_conversation_id uuid,
   p_message_id uuid default null
@@ -858,6 +932,7 @@ begin
   );
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_search(
   p_query text,
   p_conversation_id uuid default null,
@@ -896,6 +971,7 @@ begin
   return v_result;
 end;
 $$;
+
 create or replace function public.rpc_aoi_update_profile(p_profile jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -951,6 +1027,7 @@ begin
   return private.aoi_safe_profile(v_saved);
 end;
 $$;
+
 create or replace function public.rpc_aoi_member_profile(p_member_id uuid)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -972,6 +1049,7 @@ begin
   return private.aoi_safe_profile(v_profile) || jsonb_build_object('role', v_role);
 end;
 $$;
+
 create or replace function public.rpc_current_user_context()
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -1008,10 +1086,12 @@ returns jsonb language sql stable security definer set search_path = '' as $$
   order by case membership.role when 'admin' then 1 else 2 end, membership.joined_at
   limit 1;
 $$;
+
 revoke all on function public.rpc_aoi_chat_bootstrap() from public, anon;
 revoke all on function public.rpc_aoi_chat_open_direct(uuid) from public, anon;
 revoke all on function public.rpc_aoi_chat_messages(uuid,timestamptz,integer) from public, anon;
 revoke all on function public.rpc_aoi_chat_send(uuid,text,uuid,uuid,jsonb) from public, anon;
+revoke all on function public.rpc_aoi_chat_message_by_nonce(uuid,uuid) from public, anon;
 revoke all on function public.rpc_aoi_chat_edit(uuid,text) from public, anon;
 revoke all on function public.rpc_aoi_chat_delete(uuid) from public, anon;
 revoke all on function public.rpc_aoi_chat_moderate(uuid,text,text) from public, anon;
@@ -1025,6 +1105,7 @@ grant execute on function public.rpc_aoi_chat_bootstrap() to authenticated;
 grant execute on function public.rpc_aoi_chat_open_direct(uuid) to authenticated;
 grant execute on function public.rpc_aoi_chat_messages(uuid,timestamptz,integer) to authenticated;
 grant execute on function public.rpc_aoi_chat_send(uuid,text,uuid,uuid,jsonb) to authenticated;
+grant execute on function public.rpc_aoi_chat_message_by_nonce(uuid,uuid) to authenticated;
 grant execute on function public.rpc_aoi_chat_edit(uuid,text) to authenticated;
 grant execute on function public.rpc_aoi_chat_delete(uuid) to authenticated;
 grant execute on function public.rpc_aoi_chat_moderate(uuid,text,text) to authenticated;
@@ -1034,6 +1115,7 @@ grant execute on function public.rpc_aoi_chat_search(text,uuid,integer) to authe
 grant execute on function public.rpc_aoi_update_profile(jsonb) to authenticated;
 grant execute on function public.rpc_aoi_member_profile(uuid) to authenticated;
 grant execute on function public.rpc_current_user_context() to authenticated;
+
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'aoi-avatars', 'aoi-avatars', false, 3145728,
@@ -1043,6 +1125,7 @@ on conflict (id) do update set
   public = false,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'aoi-chat', 'aoi-chat', false, 10485760,
@@ -1058,6 +1141,7 @@ on conflict (id) do update set
   public = false,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
 drop policy if exists aoi_avatar_member_read on storage.objects;
 create policy aoi_avatar_member_read on storage.objects
 for select to authenticated using (
@@ -1066,7 +1150,16 @@ for select to authenticated using (
   and public.aoi_profile_avatar_authorized(
     (storage.foldername(name))[1], (storage.foldername(name))[2]
   )
+  and (
+    (storage.foldername(name))[2] = auth.uid()::text
+    or exists (
+      select 1 from public.profiles profile
+      where profile.id::text = (storage.foldername(name))[2]
+        and profile.avatar_path = name
+    )
+  )
 );
+
 drop policy if exists aoi_avatar_own_insert on storage.objects;
 create policy aoi_avatar_own_insert on storage.objects
 for insert to authenticated with check (
@@ -1078,6 +1171,7 @@ for insert to authenticated with check (
   )
   and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp')
 );
+
 drop policy if exists aoi_avatar_own_update on storage.objects;
 create policy aoi_avatar_own_update on storage.objects
 for update to authenticated using (
@@ -1091,6 +1185,7 @@ for update to authenticated using (
   )
   and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp')
 );
+
 drop policy if exists aoi_avatar_own_delete on storage.objects;
 create policy aoi_avatar_own_delete on storage.objects
 for delete to authenticated using (
@@ -1100,6 +1195,7 @@ for delete to authenticated using (
     (storage.foldername(name))[1], (storage.foldername(name))[2]
   )
 );
+
 drop policy if exists aoi_chat_attachment_read on storage.objects;
 create policy aoi_chat_attachment_read on storage.objects
 for select to authenticated using (
@@ -1122,6 +1218,7 @@ for select to authenticated using (
     )
   )
 );
+
 drop policy if exists aoi_chat_attachment_own_insert on storage.objects;
 create policy aoi_chat_attachment_own_insert on storage.objects
 for insert to authenticated with check (
@@ -1132,6 +1229,7 @@ for insert to authenticated with check (
   )
   and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'pdf', 'txt', 'csv', 'xls', 'xlsx', 'doc', 'docx')
 );
+
 drop policy if exists aoi_chat_attachment_own_update on storage.objects;
 create policy aoi_chat_attachment_own_update on storage.objects
 for update to authenticated using (
@@ -1144,26 +1242,43 @@ for update to authenticated using (
   )
   and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'pdf', 'txt', 'csv', 'xls', 'xlsx', 'doc', 'docx')
 );
+
 drop policy if exists aoi_chat_attachment_own_delete on storage.objects;
-create policy aoi_chat_attachment_own_delete on storage.objects
+drop policy if exists aoi_chat_attachment_owner_or_admin_delete on storage.objects;
+create policy aoi_chat_attachment_owner_or_admin_delete on storage.objects
 for delete to authenticated using (
   bucket_id = 'aoi-chat'
-  and public.aoi_chat_storage_authorized(
-    (storage.foldername(name))[1], (storage.foldername(name))[2], (storage.foldername(name))[3], true
+  and (
+    public.aoi_chat_storage_authorized(
+      (storage.foldername(name))[1], (storage.foldername(name))[2], (storage.foldername(name))[3], true
+    )
+    or exists (
+      select 1
+      from public.organization_memberships membership
+      join public.chat_conversations conversation on conversation.organization_id = membership.organization_id
+      where membership.organization_id::text = (storage.foldername(name))[1]
+        and conversation.id::text = (storage.foldername(name))[2]
+        and membership.user_id = auth.uid()
+        and membership.role = 'admin'
+        and membership.status = 'active'
+    )
   )
 );
+
 drop policy if exists aoi_chat_realtime_read on realtime.messages;
 create policy aoi_chat_realtime_read on realtime.messages
 for select to authenticated using (
   extension in ('presence', 'broadcast')
   and public.aoi_chat_topic_authorized((select realtime.topic()))
 );
+
 drop policy if exists aoi_chat_realtime_write on realtime.messages;
 create policy aoi_chat_realtime_write on realtime.messages
 for insert to authenticated with check (
   extension in ('presence', 'broadcast')
   and public.aoi_chat_topic_authorized((select realtime.topic()))
 );
+
 do $$
 begin
   if exists (select 1 from pg_catalog.pg_publication where pubname = 'supabase_realtime') then

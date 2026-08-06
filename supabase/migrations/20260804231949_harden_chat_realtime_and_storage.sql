@@ -1,6 +1,8 @@
 -- Preserve existing private-schema helpers and close realtime/storage privacy gaps.
 grant usage on schema private to authenticated;
+
 alter table public.chat_message_reactions add column if not exists removed_at timestamptz;
+
 create or replace function private.aoi_chat_message_json(p_message public.chat_messages)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -44,6 +46,7 @@ returns jsonb language sql stable security definer set search_path = '' as $$
   )
   from public.profiles profile where profile.id = p_message.sender_id;
 $$;
+
 create or replace function public.rpc_aoi_chat_toggle_reaction(p_message_id uuid, p_reaction text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -76,6 +79,7 @@ begin
   return jsonb_build_object('messageId', v_message.id, 'reaction', p_reaction, 'added', v_added);
 end;
 $$;
+
 create or replace function public.rpc_aoi_chat_message_by_nonce(
   p_conversation_id uuid,
   p_client_nonce uuid
@@ -98,9 +102,11 @@ begin
   return v_result;
 end;
 $$;
+
 revoke all on function public.rpc_aoi_chat_message_by_nonce(uuid,uuid) from public, anon;
 grant execute on function public.rpc_aoi_chat_message_by_nonce(uuid,uuid) to authenticated;
 grant select on public.chat_moderation_events to authenticated;
+
 drop policy if exists aoi_avatar_member_read on storage.objects;
 create policy aoi_avatar_member_read on storage.objects
 for select to authenticated using (
@@ -118,6 +124,7 @@ for select to authenticated using (
     )
   )
 );
+
 drop policy if exists aoi_chat_attachment_own_delete on storage.objects;
 drop policy if exists aoi_chat_attachment_owner_or_admin_delete on storage.objects;
 create policy aoi_chat_attachment_owner_or_admin_delete on storage.objects
