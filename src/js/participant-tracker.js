@@ -48,7 +48,7 @@ export function registerParticipantTracker(Alpine) {
     editorTrigger: null,
     form: blankForm(),
     trackerUrl: pageUrl(import.meta.env.BASE_URL, "Participant_Recruitment_Tracker.html"),
-    crmUrl: pageUrl(import.meta.env.BASE_URL, "workspace.html?view=crm&tab=recruitment"),
+    crmUrl: pageUrl(import.meta.env.BASE_URL, "workspace.html?view=relationships&tab=recruitment"),
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     statusOptions: STATUS_OPTIONS,
 
@@ -60,6 +60,7 @@ export function registerParticipantTracker(Alpine) {
           return;
         }
         this.access = access;
+        this.crmUrl = pageUrl(import.meta.env.BASE_URL, `${routeForRole(access.role)}?view=relationships&tab=recruitment`);
         await this.refresh();
         this.ready = true;
       } catch (reason) {
@@ -144,7 +145,7 @@ export function registerParticipantTracker(Alpine) {
     },
     openCrm(item) {
       if (!item.crmContactId) return;
-      location.href = `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=crm&contact=${encodeURIComponent(item.crmContactId)}`;
+      location.href = `${pageUrl(import.meta.env.BASE_URL, routeForRole(this.access?.role))}?view=relationships&tab=contacts&contact=${encodeURIComponent(item.crmContactId)}`;
     },
     async save() {
       if (!this.form.participantId.trim() || !this.form.name.trim()) {

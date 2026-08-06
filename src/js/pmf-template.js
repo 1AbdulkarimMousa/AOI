@@ -1,5 +1,5 @@
 export const pmfCollectionTemplate = String.raw`
-<div x-show="view==='collect'" class="pmf-surface">
+<div x-show="view==='research' && researchTab==='collect'" class="pmf-surface">
   <section class="page-intro collection-intro">
     <div><span class="eyebrow">Guided collection</span><h1>Capture the source before the conclusion.</h1><p>Save working notes as drafts. Submit only when provenance, consent, and limitations are complete.</p></div>
     <div class="collection-summary" aria-label="Research collection summary">
@@ -162,7 +162,7 @@ export const pmfCollectionTemplate = String.raw`
 </div>`;
 
 export const pmfAnalysisTemplate = String.raw`
-<div x-show="view==='analyze'" class="pmf-surface">
+<div x-show="view==='research' && researchTab==='analyze'" class="pmf-surface">
   <section class="page-intro analysis-intro"><div><span class="eyebrow">PMF analysis</span><h1>Compare approved signals, then decide.</h1><p>Drafts and submitted records remain outside the matrix until an administrator approves them.</p></div><div class="analysis-proof"><span>Approved-only aggregation</span><strong>5 layers · explainable rules</strong></div></section>
 
   <div class="layer-tabs" role="tablist" aria-label="PMF layer"><template x-for="layer in data.pmfLayers" :key="layer.code"><button role="tab" :aria-selected="matrixLayer===layer.code" :class="matrixLayer===layer.code && 'active'" @click="matrixLayer=layer.code"><span x-text="layer.code"></span><strong x-text="layer.name"></strong><small x-text="data.evidence.filter(item=>item.pmfLayer===layer.code&&item.workflowStatus==='approved').length+' approved evidence'"></small></button></template></div>
@@ -183,4 +183,4 @@ export const pmfAnalysisTemplate = String.raw`
     <div class="gate-fields"><label><span>Layer</span><select x-model="gateForm.pmfLayer"><template x-for="layer in data.pmfLayers" :key="layer.code"><option :value="layer.code" x-text="layer.code+' · '+layer.name"></option></template></select></label><label><span>Decision</span><select x-model="gateForm.decision"><option value="go">Go</option><option value="revise">Revise</option><option value="stop">Stop</option><option value="insufficient">Insufficient evidence</option></select></label><label class="gate-rationale"><span>Rationale</span><textarea rows="3" minlength="10" x-model.trim="gateForm.rationale" placeholder="State the decision, strongest evidence, counterevidence, and limitation."></textarea></label><button class="button button-primary" @click="prepareGateSnapshot()">Create snapshot</button></div>
     <div x-show="gateNotice" class="admin-notice" :class="gateNotice?.tone" x-text="gateNotice?.text" role="status"></div>
   </section>
-</div>`.replace("@click=\"setView('collect');collectionType='observation'\"", "@click=\"setView('collect');startCollectionRecord('observation')\"");
+</div>`.replace("@click=\"setView('collect');collectionType='observation'\"", "@click=\"setResearchTab('collect');startCollectionRecord('observation')\"");

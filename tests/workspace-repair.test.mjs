@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { csvCell } from "../src/js/core.js";
-import { resolveCrmWorkspaceRoute } from "../src/js/crm.js";
+import { resolveWorkspaceRoute } from "../src/js/crm.js";
 import { crmTemplate } from "../src/js/crm-template.js";
 import { validateDailyEodBrief, createDailyEodDraft } from "../src/js/daily-eod.js";
 import { buildCandidateExport, parseCandidateImport } from "../src/js/operations.js";
@@ -18,24 +18,17 @@ test("hardens CSV cells when formulas follow whitespace or control prefixes", ()
 });
 
 test("normalizes legacy workspace aliases without losing canonical EOD routes", () => {
-  assert.deepEqual(resolveCrmWorkspaceRoute({ view: "pmf" }), {
-    view: "analyze",
-    crmTab: "contacts",
-    outreachSection: "pipeline",
-    normalize: true,
-  });
-  assert.deepEqual(resolveCrmWorkspaceRoute({ view: "research" }), {
-    view: "collect",
-    crmTab: "contacts",
-    outreachSection: "pipeline",
-    normalize: true,
-  });
-  assert.deepEqual(resolveCrmWorkspaceRoute({ view: "daily-eod" }), {
-    view: "eod",
-    crmTab: "contacts",
-    outreachSection: "pipeline",
-    normalize: true,
-  });
+  const pmf = resolveWorkspaceRoute({ view: "pmf" });
+  assert.equal(pmf.view, "research");
+  assert.equal(pmf.researchTab, "analyze");
+  assert.equal(pmf.normalize, true);
+  const research = resolveWorkspaceRoute({ view: "research", tab: "collect" });
+  assert.equal(research.view, "research");
+  assert.equal(research.researchTab, "collect");
+  assert.equal(research.normalize, false);
+  const eod = resolveWorkspaceRoute({ view: "daily-eod" });
+  assert.equal(eod.view, "eod");
+  assert.equal(eod.normalize, true);
 });
 
 test("selects the newest approved text observation by timestamp", () => {
@@ -207,7 +200,7 @@ test("wires respondent-scoped sessions, consent metadata, value clearing, and th
   assert.match(template, /researchForms\.evidence\.consentStatus/);
   assert.match(template, /Consent:/);
   assert.match(template, /@change="syncObservationDefinition\(\)"/);
-  assert.match(template, /setView\('collect'\);startCollectionRecord\('observation'\)/);
+  assert.match(template, /setResearchTab\('collect'\);startCollectionRecord\('observation'\)/);
   assert.match(template, /safeSourceUrl\(selectedCollectRecord\?\.sourceLink\)/);
 });
 

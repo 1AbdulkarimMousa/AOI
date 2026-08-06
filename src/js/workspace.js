@@ -26,7 +26,7 @@ import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
 import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues, validateResearchRecord } from "./pmf.js";
-import { buildTodayQueue, contactCompleteness, createContactDraft, resolveCrmWorkspaceRoute, rewardForAction } from "./crm.js";
+import { buildTodayQueue, contactCompleteness, createContactDraft, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
@@ -103,11 +103,13 @@ export function registerWorkspace(Alpine) {
     loading: true,
     preview: false,
     error: "",
-    view: document.body.dataset.expectedRole === "intern" ? "today" : "overview",
+    view: "today",
     locale: localStorage.getItem("aoi-locale") === "zh-CN" ? "zh-CN" : "en",
     dark: localStorage.getItem("aoi-theme") === "dark",
-    crmTab: "contacts",
+    todayTab: document.body.dataset.expectedRole === "intern" ? "relationships" : "briefing",
+    relationshipsTab: "contacts",
     outreachSection: "pipeline",
+    researchTab: "collect",
     recruitmentMounted: false,
     mobileNav: false,
     sidebarCollapsed: false,
@@ -200,18 +202,12 @@ export function registerWorkspace(Alpine) {
       loadingDailyEodReports: false,
       dailyEodReportsLoaded: false,
       navigation: [
-        { id: "overview", label: "Overview" },
         { id: "today", label: "Today" },
+        { id: "relationships", label: "Relationships" },
+        { id: "research", label: "Research" },
         { id: "eod", label: "End-of-Day Brief" },
-        { id: "crm", label: "CRM" },
         { id: "chat", label: "Chat" },
-        { id: "work", label: "My work" },
-        { id: "collect", label: "Collect" },
-        { id: "surveys", label: "Surveys" },
-       { id: "analyze", label: "Analyze" },
-       { id: "reports", label: "Reports" },
-       { id: "team", label: "Team momentum" },
-     ],
+      ],
 
     async init() {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
@@ -220,20 +216,16 @@ export function registerWorkspace(Alpine) {
        const requestedView = searchParams.get("view");
        const requestedContactId = searchParams.get("contact");
        const requestedTab = searchParams.get("tab");
-       const route = resolveCrmWorkspaceRoute({ view: requestedView, tab: requestedTab, section: searchParams.get("section"), defaultView: this.view });
-       if (this.navigation.some((item) => item.id === route.view)) this.view = route.view;
-       this.crmTab = route.crmTab;
-       this.outreachSection = route.outreachSection;
-       this.recruitmentMounted = route.crmTab === "recruitment";
-        if (requestedContactId) {
-          this.view = "crm";
-          this.crmTab = "contacts";
-          this.outreachSection = "pipeline";
-          this.replaceCrmLocation(true);
-       } else if (route.normalize) {
-          if (route.view === "crm") this.replaceCrmLocation(true);
-          else this.normalizeWorkspaceLocation(route.view);
-        }
+       const route = resolveWorkspaceRoute({ view: requestedView, tab: requestedTab, section: searchParams.get("section"), defaultView: "today", defaultTodayTab: this.todayTab });
+       this.applyWorkspaceRoute(route);
+         if (requestedContactId) {
+           this.view = "relationships";
+           this.relationshipsTab = "contacts";
+           this.outreachSection = "pipeline";
+           this.replaceWorkspaceLocation(true, requestedContactId);
+        } else if (route.normalize) {
+           this.replaceWorkspaceLocation(true);
+         }
         this.setupRouteHistory();
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
@@ -251,7 +243,7 @@ export function registerWorkspace(Alpine) {
         this.preview = true;
         this.ready = true;
         this.loading = false;
-        if (this.view === "surveys") await this.openSurveyWorkspace();
+        if (this.isSurveyWorkspaceActive) await this.openSurveyWorkspace();
         if (this.view === "eod") await this.searchDailyEodReports(1);
         await this.initializeChat();
         return;
@@ -268,7 +260,9 @@ export function registerWorkspace(Alpine) {
           return;
         }
         if (access.role !== this.expectedRole) {
-          location.replace(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
+          const url = new URL(location.href);
+          url.pathname = pageUrl(import.meta.env.BASE_URL, routeForRole(access.role));
+          location.replace(url);
           return;
         }
         this.access = access;
@@ -278,7 +272,7 @@ export function registerWorkspace(Alpine) {
         document.documentElement.lang = this.locale;
         this.ready = true;
         await this.refreshDashboard();
-        if (this.view === "surveys") await this.openSurveyWorkspace();
+        if (this.isSurveyWorkspaceActive) await this.openSurveyWorkspace();
         this.openRequestedCrmContact(requestedContactId);
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
@@ -453,19 +447,31 @@ export function registerWorkspace(Alpine) {
 
     safeSourceUrl: safeHttpUrl,
 
+    get isSurveyWorkspaceActive() { return this.view === "research" && this.researchTab === "surveys"; },
+
+    get workspaceSectionLabel() {
+      if (this.view === "today") return { briefing: "Briefing", tasks: "Tasks", relationships: "Relationships", momentum: "Momentum" }[this.todayTab];
+      if (this.view === "relationships") return { contacts: "Contacts", recruitment: "Recruitment", outreach: "Outreach" }[this.relationshipsTab];
+      if (this.view === "research") return { collect: "Collect", surveys: "Surveys", analyze: "Analyze", reports: "Reports" }[this.researchTab];
+      return this.navigation.find((item) => item.id === this.view)?.label || "Today";
+    },
+
+    applyWorkspaceRoute(route) {
+      this.view = route.view;
+      this.todayTab = route.todayTab;
+      this.relationshipsTab = route.relationshipsTab;
+      this.outreachSection = route.outreachSection;
+      this.researchTab = route.researchTab;
+      if (route.relationshipsTab === "recruitment") this.recruitmentMounted = true;
+    },
+
     setView(view) {
-      const route = resolveCrmWorkspaceRoute({ view });
-      if (route.view === "crm") {
-        this.view = route.view;
-        this.crmTab = route.crmTab;
-        this.outreachSection = route.outreachSection;
-      } else {
-        this.view = route.view;
-      }
-      if (this.view === "crm") this.replaceCrmLocation();
-      else this.replaceWorkspaceLocation(this.view);
+      const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : null;
+      const route = resolveWorkspaceRoute({ view, tab, section: view === "relationships" ? this.outreachSection : null, defaultTodayTab: this.todayTab });
+      this.applyWorkspaceRoute(route);
+      this.replaceWorkspaceLocation();
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
-      if (this.view === "surveys") this.openSurveyWorkspace();
+      if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
       if (this.view === "chat") this.initializeChat().then(() => this.markSelectedChatRead());
       this.mobileNav = false;
       this.commandOpen = false;
@@ -477,44 +483,39 @@ export function registerWorkspace(Alpine) {
       this.matrixLayer = layer.code;
       this.setView("analyze");
     },
-    setCrmTab(tab) {
-      const route = resolveCrmWorkspaceRoute({ view: "crm", tab, section: this.outreachSection });
-      this.view = "crm";
-      this.crmTab = route.crmTab;
-      this.outreachSection = route.outreachSection;
-      if (route.crmTab === "recruitment") this.recruitmentMounted = true;
-      this.replaceCrmLocation();
+    setTodayTab(tab) {
+      this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "today", tab, defaultTodayTab: this.todayTab }));
+      this.replaceWorkspaceLocation();
+    },
+    setRelationshipsTab(tab) {
+      this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab, section: tab === "outreach" ? this.outreachSection : null }));
+      this.replaceWorkspaceLocation();
+    },
+    setResearchTab(tab) {
+      this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "research", tab }));
+      this.replaceWorkspaceLocation();
+      if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
     },
     setOutreachSection(section) {
-      const route = resolveCrmWorkspaceRoute({ view: "crm", tab: "outreach", section });
-      this.view = "crm";
-      this.crmTab = route.crmTab;
-      this.outreachSection = route.outreachSection;
-      this.replaceCrmLocation();
+      this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab: "outreach", section }));
+      this.replaceWorkspaceLocation();
     },
-    replaceWorkspaceLocation(view) {
-      this.writeWorkspaceLocation(view, false);
+    replaceWorkspaceLocation(replace = false, contactId = "") {
+      this.writeWorkspaceLocation(replace, contactId);
     },
-    normalizeWorkspaceLocation(view) {
-      this.writeWorkspaceLocation(view, true);
-    },
-    writeWorkspaceLocation(view, replace = false) {
+    writeWorkspaceLocation(replace = false, contactId = "") {
       const url = new URL(location.href);
-      url.searchParams.set("view", view);
+      url.searchParams.set("view", this.view);
       url.searchParams.delete("tab");
       url.searchParams.delete("section");
+      if (this.view === "today") url.searchParams.set("tab", this.todayTab);
+      if (this.view === "relationships") {
+        url.searchParams.set("tab", this.relationshipsTab);
+        if (this.relationshipsTab === "outreach") url.searchParams.set("section", this.outreachSection);
+      }
+      if (this.view === "research") url.searchParams.set("tab", this.researchTab);
       url.searchParams.delete("contact");
-      if (replace) window.history.replaceState({}, "", url);
-      else window.history.pushState({}, "", url);
-    },
-    replaceCrmLocation(replace = false) {
-      const url = new URL(location.href);
-      url.searchParams.set("view", "crm");
-      if (this.crmTab === "contacts") url.searchParams.delete("tab");
-      else url.searchParams.set("tab", this.crmTab);
-      if (this.crmTab === "outreach") url.searchParams.set("section", this.outreachSection);
-      else url.searchParams.delete("section");
-      if (this.crmTab !== "contacts") url.searchParams.delete("contact");
+      if (this.view === "relationships" && this.relationshipsTab === "contacts" && contactId) url.searchParams.set("contact", contactId);
       if (replace) window.history.replaceState({}, "", url);
       else window.history.pushState({}, "", url);
     },
@@ -524,13 +525,20 @@ export function registerWorkspace(Alpine) {
     },
     syncRouteFromLocation() {
       const params = new URLSearchParams(location.search);
-      const route = resolveCrmWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), defaultView: this.expectedRole === "intern" ? "today" : "overview" });
-      this.view = this.navigation.some((item) => item.id === route.view) ? route.view : (this.expectedRole === "intern" ? "today" : "overview");
-      this.crmTab = route.crmTab;
-      this.outreachSection = route.outreachSection;
-      if (route.crmTab === "recruitment") this.recruitmentMounted = true;
+      const route = resolveWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), defaultView: "today", defaultTodayTab: this.expectedRole === "intern" ? "relationships" : "briefing" });
+      this.applyWorkspaceRoute(route);
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports(1);
-      if (this.view === "surveys") this.openSurveyWorkspace();
+      if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
+      const contactId = params.get("contact");
+      if (contactId && this.view === "relationships" && this.relationshipsTab === "contacts") {
+        const contact = this.crmContacts.find((item) => item.id === contactId);
+        if (contact) this.selectCrmContact(contact);
+      } else if (this.crmEditorOpen) {
+        this.selectedCrmContact = null;
+        this.crmEditorOpen = false;
+        this.crmNotice = null;
+        this.crmActionNotice = null;
+      }
     },
     toggleTheme() {
       this.dark = !this.dark;
@@ -599,10 +607,18 @@ export function registerWorkspace(Alpine) {
       this.crmEditorOpen = true;
       this.$nextTick(() => this.focusDialog(".crm-drawer"));
     },
+    openCrmContact(contact) {
+      if (!contact) return;
+      const returnToVisibleControl = this.view === "relationships" && this.relationshipsTab === "contacts";
+      this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab: "contacts" }));
+      this.replaceWorkspaceLocation(false, contact.id);
+      this.selectCrmContact(contact);
+      if (!returnToVisibleControl) this.crmReturnFocus = null;
+    },
     openRequestedCrmContact(contactId) {
       if (!contactId) return;
-      this.view = "crm";
-      this.crmTab = "contacts";
+      this.view = "relationships";
+      this.relationshipsTab = "contacts";
       this.outreachSection = "pipeline";
       const contact = this.crmContacts.find((item) => item.id === contactId);
       if (contact) this.selectCrmContact(contact);
@@ -615,7 +631,9 @@ export function registerWorkspace(Alpine) {
       this.crmNotice = null;
       this.crmActionNotice = null;
       this.crmEditorOpen = true;
-      this.view = "crm";
+      this.view = "relationships";
+      this.relationshipsTab = "contacts";
+      this.replaceWorkspaceLocation();
       this.$nextTick(() => this.focusDialog(".crm-drawer"));
     },
     closeCrmContact() {
@@ -623,6 +641,7 @@ export function registerWorkspace(Alpine) {
       this.crmEditorOpen = false;
       this.crmNotice = null;
       this.crmActionNotice = null;
+      if (new URL(location.href).searchParams.has("contact")) this.replaceWorkspaceLocation(true);
       this.$nextTick(() => this.crmReturnFocus?.focus?.());
     },
     focusDialog(selector) {

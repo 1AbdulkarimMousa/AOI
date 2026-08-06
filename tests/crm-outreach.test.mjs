@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("consolidates the complete Outreach suite under CRM", async () => {
+test("consolidates the complete Outreach suite under Relationships", async () => {
   const [crmTemplate, outreachTemplate, importTemplate, workspace, workspaceTemplate] = await Promise.all([
     readFile(new URL("src/js/crm-template.js", root), "utf8"),
     readFile(new URL("src/js/outreach-template.js", root), "utf8").catch(() => ""),
@@ -19,7 +19,7 @@ test("consolidates the complete Outreach suite under CRM", async () => {
   assert.match(crmTemplate, /outreachTemplate/);
   assert.match(crmTemplate, /role="tablist"/);
   assert.match(crmTemplate, /role="tab"/);
-  assert.match(crmTemplate, /:aria-selected="crmTab==='outreach'"/);
+  assert.match(crmTemplate, /:aria-selected="relationshipsTab==='outreach'"/);
 
   assert.match(outreachTemplate, /setOutreachSection\('pipeline'\)/);
   assert.match(outreachTemplate, /setOutreachSection\('evidence'\)/);
@@ -39,7 +39,7 @@ test("consolidates the complete Outreach suite under CRM", async () => {
   assert.match(workspaceTemplate, /candidateEditorOpen/);
 });
 
-test("opens candidate and evidence actions in CRM Outreach Pipeline", async () => {
+test("opens candidate and evidence actions in Relationships Outreach Pipeline", async () => {
   const [workspace, outreachTemplate] = await Promise.all([
     readFile(new URL("src/js/workspace.js", root), "utf8"),
     readFile(new URL("src/js/outreach-template.js", root), "utf8").catch(() => ""),
@@ -48,7 +48,7 @@ test("opens candidate and evidence actions in CRM Outreach Pipeline", async () =
   assert.match(workspace, /startNewCandidate\(\)[\s\S]*setOutreachSection\("pipeline"\)/);
   assert.match(outreachTemplate, /@click="setOutreachSection\('pipeline'\)"/);
   assert.match(workspace, /setOutreachSection\(section\)/);
-  assert.match(workspace, /setView\(view\)[\s\S]*resolveCrmWorkspaceRoute\(\{ view \}\)/);
+  assert.match(workspace, /setView\(view\)[\s\S]*resolveWorkspaceRoute/);
 });
 
 test("mounts Recruitment on demand and preserves it after tab changes", async () => {
@@ -58,7 +58,7 @@ test("mounts Recruitment on demand and preserves it after tab changes", async ()
   ]);
 
   assert.match(crmTemplate, /<template x-if="recruitmentMounted">/);
-  assert.match(crmTemplate, /<section x-show="crmTab==='recruitment'"/);
+  assert.match(crmTemplate, /<section x-show="relationshipsTab==='recruitment'"/);
   assert.match(workspace, /recruitmentMounted:\s*false/);
-  assert.match(workspace, /route\.crmTab === "recruitment"/);
+  assert.match(workspace, /route\.relationshipsTab === "recruitment"/);
 });

@@ -720,6 +720,19 @@ kbd {
   padding: 31px 32px 48px;
 }
 
+.workspace-local-tabs {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.workspace-local-tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 footer {
   display: flex;
   align-items: center;

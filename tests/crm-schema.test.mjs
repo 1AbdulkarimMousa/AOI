@@ -24,7 +24,7 @@ test("ships a connected CRM persistence contract", async () => {
   assert.match(api, /rpc\("rpc_aoi_upsert_crm_contact"/);
   assert.match(api, /rpc\("rpc_aoi_log_crm_activity"/);
   assert.match(template, /Today queue/);
-  assert.match(template, /Contact CRM/);
+  assert.match(template, /Relationship directory/);
   assert.match(template, /Profile completeness/);
   assert.match(controller, /buildTodayQueue/);
   assert.match(controller, /rewardForAction/);

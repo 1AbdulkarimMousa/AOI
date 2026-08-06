@@ -2,36 +2,73 @@ import { localDateValue } from "./core.js";
 
 const REQUIRED_CONTACT_FIELDS = ["name", "contactType", "primaryChannel", "sourceUrl", "nextAction", "nextActionDue"];
 const OUTREACH_SECTIONS = new Set(["pipeline", "evidence", "imports"]);
+const TODAY_TABS = new Set(["briefing", "tasks", "relationships", "momentum"]);
+const RELATIONSHIP_TABS = new Set(["contacts", "recruitment", "outreach"]);
+const RESEARCH_TABS = new Set(["collect", "surveys", "analyze", "reports"]);
+const PRIMARY_VIEWS = new Set(["today", "relationships", "research", "eod", "chat"]);
+const LEGACY_TODAY_VIEWS = { overview: "briefing", work: "tasks", team: "momentum" };
 const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", imports: "imports" };
-const LEGACY_WORKSPACE_VIEWS = { research: "collect", pmf: "analyze", "daily-eod": "eod", "end-of-day": "eod" };
+const LEGACY_RESEARCH_VIEWS = { collect: "collect", surveys: "surveys", analyze: "analyze", reports: "reports", pmf: "analyze" };
+const LEGACY_WORKSPACE_VIEWS = { crm: "relationships", "daily-eod": "eod", "end-of-day": "eod" };
 
 export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
 
-export function resolveCrmWorkspaceRoute({ view, tab, section, defaultView } = {}) {
+export function resolveWorkspaceRoute({ view, tab, section, defaultView = "today", defaultTodayTab = "briefing" } = {}) {
+  const defaults = {
+    todayTab: TODAY_TABS.has(defaultTodayTab) ? defaultTodayTab : "briefing",
+    relationshipsTab: "contacts",
+    outreachSection: "pipeline",
+    researchTab: "collect",
+  };
+
+  if (LEGACY_TODAY_VIEWS[view]) {
+    return { view: "today", ...defaults, todayTab: LEGACY_TODAY_VIEWS[view], normalize: true };
+  }
+
   if (LEGACY_OUTREACH_VIEWS[view]) {
+    const outreachSection = view === "outreach" && OUTREACH_SECTIONS.has(section) ? section : LEGACY_OUTREACH_VIEWS[view];
     return {
-      view: "crm",
-      crmTab: "outreach",
-      outreachSection: LEGACY_OUTREACH_VIEWS[view],
+      view: "relationships",
+      ...defaults,
+      relationshipsTab: "outreach",
+      outreachSection,
       normalize: true,
     };
   }
 
+  if (LEGACY_RESEARCH_VIEWS[view]) {
+    return { view: "research", ...defaults, researchTab: LEGACY_RESEARCH_VIEWS[view], normalize: true };
+  }
+
   const requestedView = view || defaultView;
-  const resolvedView = LEGACY_WORKSPACE_VIEWS[requestedView] || requestedView;
-  const crmTab = resolvedView === "crm" && ["recruitment", "outreach"].includes(tab) ? tab : "contacts";
-  const hasValidOutreachSection = OUTREACH_SECTIONS.has(section);
-  const hasNonCanonicalTab = resolvedView === "crm" && Boolean(tab) && !["recruitment", "outreach"].includes(tab);
-  const hasNonCanonicalSection = resolvedView === "crm"
-    ? (crmTab === "outreach" ? !hasValidOutreachSection : Boolean(section))
-    : Boolean(tab || section);
-  return {
-    view: resolvedView,
-    crmTab,
-    outreachSection: crmTab === "outreach" && hasValidOutreachSection ? section : "pipeline",
-    normalize: Boolean(LEGACY_WORKSPACE_VIEWS[requestedView]) || hasNonCanonicalTab || hasNonCanonicalSection,
-  };
+  let resolvedView = LEGACY_WORKSPACE_VIEWS[requestedView] || requestedView;
+  let normalize = !view || Boolean(LEGACY_WORKSPACE_VIEWS[requestedView]);
+  if (!PRIMARY_VIEWS.has(resolvedView)) {
+    resolvedView = PRIMARY_VIEWS.has(defaultView) ? defaultView : "today";
+    normalize = true;
+  }
+
+  if (resolvedView === "today") {
+    const todayTab = TODAY_TABS.has(tab) ? tab : defaults.todayTab;
+    return { view: resolvedView, ...defaults, todayTab, normalize: normalize || tab !== todayTab || Boolean(section) };
+  }
+
+  if (resolvedView === "relationships") {
+    const relationshipsTab = RELATIONSHIP_TABS.has(tab) ? tab : defaults.relationshipsTab;
+    const outreachSection = relationshipsTab === "outreach" && OUTREACH_SECTIONS.has(section) ? section : defaults.outreachSection;
+    const invalidSection = relationshipsTab === "outreach" ? section !== outreachSection : Boolean(section);
+    return { view: resolvedView, ...defaults, relationshipsTab, outreachSection, normalize: normalize || tab !== relationshipsTab || invalidSection };
+  }
+
+  if (resolvedView === "research") {
+    const researchTab = RESEARCH_TABS.has(tab) ? tab : defaults.researchTab;
+    return { view: resolvedView, ...defaults, researchTab, normalize: normalize || tab !== researchTab || Boolean(section) };
+  }
+
+  return { view: resolvedView, ...defaults, normalize: normalize || Boolean(tab || section) };
 }
+
+export const resolveCrmWorkspaceRoute = resolveWorkspaceRoute;
 
 export function createContactDraft(ownerName = "") {
   return {

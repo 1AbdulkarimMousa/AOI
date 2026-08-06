@@ -16,9 +16,10 @@ test("authenticated production workspace reaches live survey data", async ({ pag
   await expect(page).toHaveURL(/(?:workspace|interns)\.html/, { timeout: 20_000 });
   await expect(page.locator(".app-shell")).toBeVisible();
 
-  const surveys = page.getByRole("button", { name: "Surveys" });
-  if (await surveys.count()) {
-    await surveys.click();
+  const research = page.getByRole("button", { name: "Research" });
+  if (await research.count()) {
+    await research.click();
+    await page.getByRole("tab", { name: "Surveys", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Build evidence people can trust." })).toBeVisible();
     await expect(page.locator(".survey-library-row").first()).toBeVisible();
   }

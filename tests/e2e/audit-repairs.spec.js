@@ -23,7 +23,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test("survey library search and views change visible results", async ({ page }) => {
-  await page.goto("/AOI/workspace.html?preview=1&view=surveys");
+  await page.goto("/AOI/workspace.html?preview=1&view=research&tab=surveys");
   const rows = page.locator(".survey-library-row");
   await expect(rows).toHaveCount(1);
 
@@ -36,16 +36,16 @@ test("survey library search and views change visible results", async ({ page }) 
 });
 
 test("survey analysis tabs expose selected state", async ({ page }) => {
-  await page.goto("/AOI/workspace.html?preview=1&view=surveys");
+  await page.goto("/AOI/workspace.html?preview=1&view=research&tab=surveys");
   await page.locator(".survey-library-row").click();
-  await page.getByRole("tab", { name: "Analyze" }).click();
+  await page.locator(".survey-command-bar").getByRole("tab", { name: "Analyze" }).click();
   await page.getByRole("tab", { name: "Questions" }).click();
   await expect(page.getByRole("tab", { name: "Questions" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("CRM drawer receives and contains keyboard focus", async ({ page, isMobile }) => {
   test.skip(isMobile, "Desktop focus containment is covered independently from mobile navigation.");
-  await page.goto("/AOI/workspace.html?preview=1&view=crm");
+  await page.goto("/AOI/workspace.html?preview=1&view=relationships&tab=contacts");
   await page.locator(".crm-directory-row").first().click();
   const dialog = page.getByRole("dialog", { name: /Contact record/ });
   await expect(dialog).toBeVisible();
@@ -55,11 +55,27 @@ test("CRM drawer receives and contains keyboard focus", async ({ page, isMobile 
   await expect.poll(() => page.evaluate(() => document.querySelector(".crm-drawer")?.contains(document.activeElement))).toBe(true);
 });
 
+test("contact deep links follow browser back and forward", async ({ page, isMobile }) => {
+  test.skip(isMobile, "Desktop history contract avoids mobile drawer-navigation overlap.");
+  await page.goto("/AOI/workspace.html?preview=1&view=today&tab=relationships");
+  await page.locator(".crm-queue-row").first().click();
+  await expect(page).toHaveURL(/view=relationships&tab=contacts&contact=/);
+  await expect(page.getByRole("dialog", { name: /Contact record/ })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/view=today&tab=relationships/);
+  await expect(page.getByRole("dialog", { name: /Contact record/ })).toBeHidden();
+
+  await page.goForward();
+  await expect(page).toHaveURL(/view=relationships&tab=contacts&contact=/);
+  await expect(page.getByRole("dialog", { name: /Contact record/ })).toBeVisible();
+});
+
 test("mobile survey management has no page-level horizontal overflow", async ({ page, isMobile }) => {
   test.skip(!isMobile, "Mobile-only containment contract.");
-  await page.goto("/AOI/workspace.html?preview=1&view=surveys");
+  await page.goto("/AOI/workspace.html?preview=1&view=research&tab=surveys");
   await page.locator(".survey-library-row").click();
-  await page.getByRole("tab", { name: "Analyze" }).click();
+  await page.locator(".survey-command-bar").getByRole("tab", { name: "Analyze" }).click();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   const sidebarState = await page.evaluate(() => {

@@ -15,7 +15,7 @@ import {
 
 const LABELS = {
   en: {
-    workspace: "Workspace", collect: "Collect", analyze: "Analyze", helpCenter: "Help Center", administration: "Administration",
+    workspace: "Today", collect: "Relationships", analyze: "Research", helpCenter: "Help Center", administration: "Administration",
     searchHelp: "Search help", admin: "Admin", intern: "Intern", preview: "Preview data", offline: "Offline", live: "Live library synced",
     eyebrow: "Internal PMF field guide", title: "Know what to do next.", subtitle: "Step-by-step Ambiloop PMF guidance for planning, collection, evidence quality, decisions, and safe team routines.",
     searchPlaceholder: "Search a task, PMF layer, workflow, or question…", clear: "Clear", articles: "articles", all: "All", start: "Start here", method: "PMF method", collection: "Collection", evidence: "Evidence quality", security: "Data handling",
@@ -25,7 +25,7 @@ const LABELS = {
     editArticle: "Edit article", editorCopy: "Maintain both languages and use structured blocks. Raw HTML is not accepted.", cancel: "Cancel", saving: "Saving…", saveDraft: "Save draft", publish: "Publish", archive: "Archive",
   },
   "zh-CN": {
-    workspace: "工作空间", collect: "采集", analyze: "分析", helpCenter: "帮助中心", administration: "系统管理",
+    workspace: "今日", collect: "关系", analyze: "研究", helpCenter: "帮助中心", administration: "系统管理",
     searchHelp: "搜索帮助", admin: "管理员", intern: "实习生", preview: "预览数据", offline: "离线", live: "实时资料库已同步",
     eyebrow: "内部 PMF 实务指南", title: "清楚知道下一步。", subtitle: "面向 Ambiloop PMF 规划、采集、证据质量、决策和安全团队流程的分步指南。",
     searchPlaceholder: "搜索任务、PMF 层级、工作流或问题…", clear: "清除", articles: "篇指南", all: "全部", start: "从这里开始", method: "PMF 方法", collection: "研究采集", evidence: "证据质量", security: "数据处理",

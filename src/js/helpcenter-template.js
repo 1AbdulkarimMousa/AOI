@@ -20,9 +20,10 @@ export const helpCenterTemplate = String.raw`
         <div class="project-switcher"><div class="project-badge">A</div><div><small>Project</small><strong>Ambiloop U.S. PMF</strong></div><span>⌄</span></div>
         <nav class="primary-nav" aria-label="Help Center navigation">
           <span class="nav-label">Workspace</span>
-          <a :href="workspaceUrl"><span class="nav-symbol">W</span><span x-text="labels.workspace"></span></a>
-          <a :href="workspaceUrl+'?view=collect'"><span class="nav-symbol">C</span><span x-text="labels.collect"></span></a>
-          <a :href="workspaceUrl+'?view=analyze'"><span class="nav-symbol">A</span><span x-text="labels.analyze"></span></a>
+          <a :href="workspaceUrl+'?view=today&tab=briefing'"><span class="nav-symbol">T</span><span x-text="labels.workspace"></span></a>
+          <a :href="workspaceUrl+'?view=relationships&tab=contacts'"><span class="nav-symbol">R</span><span x-text="labels.collect"></span></a>
+          <a :href="workspaceUrl+'?view=research&tab=collect'"><span class="nav-symbol">R</span><span x-text="labels.analyze"></span></a>
+          <a :href="workspaceUrl+'?view=research&tab=analyze'"><span class="nav-symbol">A</span><span>Analysis</span></a>
           <span class="nav-label nav-label-admin">Reference</span>
           <button class="active"><span class="nav-symbol">?</span><span x-text="labels.helpCenter"></span></button>
           <template x-if="access.role==='admin'"><a :href="administrationUrl"><span class="nav-symbol">A</span><span x-text="labels.administration"></span></a></template>

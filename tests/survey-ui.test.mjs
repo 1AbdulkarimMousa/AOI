@@ -35,7 +35,9 @@ test("adds a complete survey management workspace", async () => {
     readFile(new URL("src/css/surveys.css", root), "utf8"),
   ]);
 
-  assert.match(workspace, /id:\s*"surveys"/);
+  assert.match(workspace, /\{ id: "research", label: "Research" \}/);
+  assert.match(workspace, /researchTab:\s*"collect"/);
+  assert.match(surveyTemplate, /view==='research' && researchTab==='surveys'/);
   assert.match(template, /surveyWorkspaceTemplate/);
   assert.match(controller, /createSurveyWorkspaceState/);
   for (const label of ["Survey library", "Form builder", "Distribution", "Response review", "Cross-tabs", "Import & export"]) {

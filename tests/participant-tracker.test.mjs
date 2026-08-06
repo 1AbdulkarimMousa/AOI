@@ -50,18 +50,18 @@ test("ships a protected tracker page, RPC contract, and Vite entry", async () =>
   assert.match(vite, /participantTracker/);
 });
 
-test("embeds recruitment as a CRM tab without removing the Contacts view", async () => {
+test("embeds recruitment as a Relationships tab without removing the Contacts view", async () => {
   const [crmTemplate, workspace, workspaceTemplate, app] = await Promise.all([
     readFile(new URL("../src/js/crm-template.js", import.meta.url), "utf8"),
     readFile(new URL("../src/js/workspace.js", import.meta.url), "utf8"),
     readFile(new URL("../src/js/workspace-template.js", import.meta.url), "utf8"),
     readFile(new URL("../src/js/app.js", import.meta.url), "utf8"),
   ]);
-  assert.match(crmTemplate, /crmTab==='contacts'/);
-  assert.match(crmTemplate, /crmTab==='recruitment'/);
+  assert.match(crmTemplate, /relationshipsTab==='contacts'/);
+  assert.match(crmTemplate, /relationshipsTab==='recruitment'/);
   assert.match(crmTemplate, /participantTrackerEmbedTemplate/);
   assert.match(workspace, /requestedTab = searchParams\.get\("tab"\)/);
-  assert.match(workspace, /setCrmTab\(tab\)/);
+  assert.match(workspace, /setRelationshipsTab\(tab\)/);
   assert.match(workspaceTemplate, /crmTemplateWithRecruitment/);
   assert.match(app, /registerParticipantTracker\(Alpine\)/);
 });
@@ -72,16 +72,16 @@ test("exposes the shared add prospect flow in CRM Recruitment", async () => {
   assert.match(template, /participant-embedded-heading[\s\S]*@click="openNew\(\)"[\s\S]*\+ Add a prospect/);
 });
 
-test("shows the contact CRM introduction only on the Contacts tab", async () => {
+test("shows the relationship introduction only on the Contacts tab", async () => {
   const crmTemplate = await readFile(new URL("../src/js/crm-template.js", import.meta.url), "utf8");
 
-  assert.match(crmTemplate, /<section x-show="crmTab==='contacts'" class="page-intro crm-intro">/);
+  assert.match(crmTemplate, /<section x-show="relationshipsTab==='contacts'" class="page-intro crm-intro">/);
 });
 
-test("returns standalone tracker users to CRM Recruitment", async () => {
+test("returns standalone tracker users to Relationships Recruitment", async () => {
   const controller = await readFile(new URL("../src/js/participant-tracker.js", import.meta.url), "utf8");
 
-  assert.match(controller, /workspace\.html\?view=crm&tab=recruitment/);
+  assert.match(controller, /workspace\.html\?view=relationships&tab=recruitment/);
 });
 
 test("defaults new prospect follow-up to the current date", async () => {

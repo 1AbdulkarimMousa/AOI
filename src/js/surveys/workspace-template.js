@@ -1,5 +1,5 @@
 const surveyWorkspaceTemplateBase = String.raw`
-<div x-show="view==='surveys'" class="survey-workspace">
+<div x-show="view==='research' && researchTab==='surveys'" class="survey-workspace">
   <section class="page-intro survey-intro">
     <div><span class="eyebrow">Questionnaires & surveys</span><h1>Build evidence people can trust.</h1><p>Author bilingual studies, approve immutable versions, collect securely, and promote reviewed findings into the PMF evidence chain.</p></div>
     <div class="hero-actions"><button x-show="surveyWorkspace" class="button button-secondary" @click="closeSurveyAsset()">Survey library</button><button class="button button-primary" @click="surveyNew.open=true">New survey</button></div>
