@@ -28,6 +28,8 @@ test("ships shared chat navigation and a responsive collaboration workspace", as
   assert.match(chatTemplate, /moderateMessage/);
   assert.match(styles, /\.chat-layout/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.chat-layout/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.chat-message-actions\s*{[^}]*flex-wrap:\s*wrap/);
+  assert.doesNotMatch(styles, /\.chat-message-actions\s*{[^}]*flex-wrap:\s*nowrap/);
 });
 
 test("ships self-service profiles with photo and preset avatar choices", async () => {

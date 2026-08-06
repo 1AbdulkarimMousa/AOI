@@ -3760,7 +3760,7 @@ textarea:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2
   .chat-message-list { padding: 16px 13px; }
   .chat-message { max-width: 90%; }
   .chat-message-actions { opacity: 1; }
-  .chat-message-actions { flex-wrap: nowrap; overflow-x: auto; }
+  .chat-message-actions { flex-wrap: wrap; }
   .chat-message-actions button { min-width: 44px; min-height: 44px; flex: 0 0 auto; }
   .chat-search-results { top: 122px; right: 10px; left: 10px; }
   .chat-details { z-index: 8; width: min(310px, 90%); }
