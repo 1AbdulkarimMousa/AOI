@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   csvCell,
   initials,
+  localDateValue,
   pageUrl,
   readableError,
   routeForRole,
@@ -56,6 +57,10 @@ test("builds repository-relative page URLs", () => {
   assert.equal(pageUrl("/AOI/", "login.html"), "/AOI/login.html");
   assert.equal(pageUrl("/", "workspace.html"), "/workspace.html");
   assert.equal(pageUrl("/AOI", "/interns.html"), "/AOI/interns.html");
+});
+
+test("formats local dates for date inputs without UTC conversion", () => {
+  assert.equal(localDateValue(new Date(2026, 0, 2, 23, 30)), "2026-01-02");
 });
 
 test("routes each workspace role to its protected page", () => {

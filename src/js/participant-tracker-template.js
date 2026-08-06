@@ -1,6 +1,6 @@
 const participantTrackerContentTemplate = String.raw`
 <template x-if="ready">
-  <div class="participant-tracker-content">
+  <div class="participant-tracker-content" @keydown.escape.window="editorOpen && closeEditor()">
     <section x-show="error" class="admin-notice error" role="alert"><span x-text="error"></span><button class="text-button" @click="refresh()">Retry</button></section>
     <section x-show="notice" class="admin-notice" :class="notice?.tone" role="status" x-text="notice?.text"></section>
 
@@ -26,7 +26,7 @@ const participantTrackerContentTemplate = String.raw`
     <section class="participant-note"><span>◎</span><div><strong>Research boundary</strong><p>These are recruitment prospects only. Convert to a respondent only after screening, segment assignment, and granted consent are complete.</p></div></section>
 
     <div x-show="editorOpen" class="modal-backdrop participant-drawer-backdrop" @mousedown.self="closeEditor()">
-      <aside class="participant-drawer" role="dialog" aria-modal="true" aria-labelledby="participant-editor-title">
+      <aside x-ref="participantEditor" class="participant-drawer" role="dialog" aria-modal="true" aria-labelledby="participant-editor-title" tabindex="-1" @keydown.tab="trapEditorFocus($event)">
         <div class="drawer-header"><span class="eyebrow" x-text="selected ? 'Prospect record' : 'New prospect'"></span><button class="icon-button" @click="closeEditor()" aria-label="Close">×</button></div>
         <div class="drawer-title"><span class="participant-status" :data-status="form.status" x-text="statusLabel(form.status)"></span><h2 id="participant-editor-title" x-text="form.name||'Add a prospect'"></h2><p>Capture verified recruitment facts, then connect the prospect to research without re-entering identity data.</p></div>
         <form class="participant-form" @submit.prevent="save()">
@@ -62,6 +62,6 @@ export const participantTrackerTemplate = String.raw`
 
 export const participantTrackerEmbedTemplate = String.raw`
 <div x-data="participantTrackerPage" x-init="embedded=true; init()" x-cloak class="participant-embedded-shell">
-  <div class="participant-embedded-heading"><div><span class="eyebrow">Prospect pipeline</span><h2>Recruitment</h2><p>Move verified interest toward screening without creating research evidence.</p></div><a class="button button-secondary" :href="trackerUrl">Open full tracker</a></div>
+  <div class="participant-embedded-heading"><div><span class="eyebrow">Prospect pipeline</span><h2>Recruitment</h2><p>Move verified interest toward screening without creating research evidence.</p></div><div class="participant-embedded-actions"><a class="button button-secondary" :href="trackerUrl">Open full tracker</a><button type="button" class="button button-primary" @click="openNew()">+ Add a prospect</button></div></div>
   ${participantTrackerContentTemplate}
 </div>`;

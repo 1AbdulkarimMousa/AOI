@@ -65,3 +65,40 @@ test("embeds recruitment as a CRM tab without removing the Contacts view", async
   assert.match(workspaceTemplate, /crmTemplateWithRecruitment/);
   assert.match(app, /registerParticipantTracker\(Alpine\)/);
 });
+
+test("exposes the shared add prospect flow in CRM Recruitment", async () => {
+  const template = await readFile(new URL("../src/js/participant-tracker-template.js", import.meta.url), "utf8");
+
+  assert.match(template, /participant-embedded-heading[\s\S]*@click="openNew\(\)"[\s\S]*\+ Add a prospect/);
+});
+
+test("shows the contact CRM introduction only on the Contacts tab", async () => {
+  const crmTemplate = await readFile(new URL("../src/js/crm-template.js", import.meta.url), "utf8");
+
+  assert.match(crmTemplate, /<section x-show="crmTab==='contacts'" class="page-intro crm-intro">/);
+});
+
+test("returns standalone tracker users to CRM Recruitment", async () => {
+  const controller = await readFile(new URL("../src/js/participant-tracker.js", import.meta.url), "utf8");
+
+  assert.match(controller, /workspace\.html\?view=crm&tab=recruitment/);
+});
+
+test("defaults new prospect follow-up to the current date", async () => {
+  const controller = await readFile(new URL("../src/js/participant-tracker.js", import.meta.url), "utf8");
+
+  assert.match(controller, /nextActionDue:\s*localDateValue\(\)/);
+  assert.doesNotMatch(controller, /nextActionDue:\s*"2026-08-06"/);
+});
+
+test("keeps keyboard focus inside the prospect drawer and restores it on close", async () => {
+  const [template, controller] = await Promise.all([
+    readFile(new URL("../src/js/participant-tracker-template.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/js/participant-tracker.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(template, /@keydown\.escape\.window="editorOpen && closeEditor\(\)"/);
+  assert.match(template, /x-ref="participantEditor"[\s\S]*@keydown\.tab="trapEditorFocus\(\$event\)"/);
+  assert.match(controller, /this\.\$refs\.participantEditor\?\.focus\(\)/);
+  assert.match(controller, /this\.editorTrigger\?\.focus\(\)/);
+});

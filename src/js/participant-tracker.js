@@ -3,7 +3,7 @@ import "../css/participant-tracker.css";
 import { convertParticipantToRespondent, loadParticipantTracker, saveParticipantRecruitment } from "./api.js";
 import { getExistingWorkspaceAccess, signOut } from "./auth.js";
 import { conversionReadiness } from "./collect.js";
-import { initials, pageUrl, readableError, routeForRole } from "./core.js";
+import { initials, localDateValue, pageUrl, readableError, routeForRole } from "./core.js";
 
 const STATUS_OPTIONS = ["new", "contacted", "responded", "screening", "scheduled", "completed", "declined", "no_response"];
 
@@ -21,7 +21,7 @@ function blankForm(ownerId = "") {
     consentStatus: "pending",
     ownerId,
     nextAction: "Confirm eligibility, timezone, and interview availability",
-    nextActionDue: "2026-08-06",
+    nextActionDue: localDateValue(),
     interviewDate: "",
     qualificationNotes: "",
     notes: "",
@@ -45,9 +45,10 @@ export function registerParticipantTracker(Alpine) {
     filter: "all",
     selected: null,
     editorOpen: false,
+    editorTrigger: null,
     form: blankForm(),
     trackerUrl: pageUrl(import.meta.env.BASE_URL, "Participant_Recruitment_Tracker.html"),
-    crmUrl: pageUrl(import.meta.env.BASE_URL, "workspace.html?view=crm"),
+    crmUrl: pageUrl(import.meta.env.BASE_URL, "workspace.html?view=crm&tab=recruitment"),
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     statusOptions: STATUS_OPTIONS,
 
@@ -97,22 +98,49 @@ export function registerParticipantTracker(Alpine) {
       return this.items.filter((item) => item.status === status).length;
     },
     conversionReadiness,
+    openEditor() {
+      this.editorTrigger = document.activeElement instanceof window.HTMLElement ? document.activeElement : null;
+      this.editorOpen = true;
+      this.$nextTick(() => this.$refs.participantEditor?.focus());
+    },
     openNew() {
       this.selected = null;
       this.form = blankForm(this.access?.userId || "");
       this.notice = null;
-      this.editorOpen = true;
+      this.openEditor();
     },
     openEdit(item) {
       this.selected = item;
       this.form = { ...blankForm(this.access?.userId || ""), ...item, interviewDate: item.interviewDate || "", crmContactId: item.crmContactId || "", respondentId: item.respondentId || "" };
       this.notice = null;
-      this.editorOpen = true;
+      this.openEditor();
     },
     closeEditor() {
       this.selected = null;
       this.notice = null;
       this.editorOpen = false;
+      this.$nextTick(() => {
+        this.editorTrigger?.focus();
+        this.editorTrigger = null;
+      });
+    },
+    trapEditorFocus(event) {
+      const editor = this.$refs.participantEditor;
+      const focusable = [...(editor?.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])]
+        .filter((element) => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && [editor, first].includes(document.activeElement)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     },
     openCrm(item) {
       if (!item.crmContactId) return;
