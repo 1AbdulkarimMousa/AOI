@@ -11,7 +11,7 @@ test("authenticated production workspace reaches live survey data", async ({ pag
 
   await page.goto(new URL("login.html", liveUrl).href);
   await page.getByLabel("Email address").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.locator('input[autocomplete="current-password"]').fill(password);
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page).toHaveURL(/(?:workspace|interns)\.html/, { timeout: 20_000 });
   await expect(page.locator(".app-shell")).toBeVisible();
