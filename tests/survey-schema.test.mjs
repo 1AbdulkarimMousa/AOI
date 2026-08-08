@@ -177,6 +177,19 @@ test("filters every survey analysis metric by the selected population", async ()
   assert.match(sql, /question#>>'\{privacy,classification\}' is distinct from 'direct_identifier'/i);
 });
 
+test("defines authenticated distribution lifecycle actions", async () => {
+  const names = (await readdir(migrationsUrl)).filter((name) => name.endsWith("_survey_distribution_lifecycle.sql")).sort();
+  assert.equal(names.length, 1);
+  const sql = await readFile(new URL(names[0], migrationsUrl), "utf8");
+  const api = await readFile(new URL("../src/js/api.js", import.meta.url), "utf8");
+
+  assert.match(sql, /rpc_aoi_update_survey_link_status/);
+  assert.match(sql, /rpc_aoi_revoke_survey_invitation/);
+  assert.match(sql, /p_status not in \('active', 'paused', 'revoked'\)/);
+  assert.match(api, /updateSurveyLinkStatus/);
+  assert.match(api, /revokeSurveyInvitation/);
+});
+
 test("keeps questionnaire validation extensions in the effective final validator", async () => {
   const names = (await readdir(migrationsUrl)).filter((name) => name.endsWith("_survey_questionnaire_validation_parity.sql")).sort();
   assert.equal(names.length, 1);

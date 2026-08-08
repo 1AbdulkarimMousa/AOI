@@ -250,6 +250,18 @@ export async function createSurveyInvitation(linkId, recipientName, recipientEma
   return data;
 }
 
+export async function updateSurveyLinkStatus(linkId, status) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_update_survey_link_status", { p_link_id: linkId, p_status: status });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function revokeSurveyInvitation(invitationId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_revoke_survey_invitation", { p_invitation_id: invitationId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function reviewSurveySubmission(submissionId, action, notes = "") {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_review_survey_submission", {
     p_submission_id: submissionId,

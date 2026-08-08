@@ -202,3 +202,15 @@ test("guards leaving a dirty survey workspace for another route", () => {
   assert.equal(shouldConfirmSurveyRoute(true, true, true), false);
   assert.equal(shouldConfirmSurveyRoute(false, false, true), false);
 });
+
+test("exposes administrator link lifecycle actions", async () => {
+  const [controller, template] = await Promise.all([
+    readFile(new URL("src/js/surveys/workspace.js", root), "utf8"),
+    readFile(new URL("src/js/surveys/workspace-template.js", root), "utf8"),
+  ]);
+  assert.match(controller, /changeSurveyLinkStatus/);
+  assert.match(controller, /revokeCurrentInvitation/);
+  assert.match(template, /changeSurveyLinkStatus/);
+  assert.match(template, /paused/);
+  assert.match(template, /revoked/);
+});

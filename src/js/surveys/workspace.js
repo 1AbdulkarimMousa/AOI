@@ -12,6 +12,8 @@ import {
   reviewSurveyVersion,
   saveSurveyDraft,
   submitSurveyVersion,
+  updateSurveyLinkStatus,
+  revokeSurveyInvitation,
 } from "../api.js";
 import { pageUrl, readableError } from "../core.js";
 import {
@@ -505,6 +507,26 @@ export function createSurveyWorkspaceState() {
       if (!this.surveyCreatedLink?.url) return;
       await navigator.clipboard.writeText(this.surveyCreatedLink.url);
       this.surveyNotice = { tone: "success", text: "Survey link copied." };
+    },
+    async changeSurveyLinkStatus(link, status) {
+      if (!link || this.access?.role !== "admin") return;
+      try {
+        if (!this.preview) await updateSurveyLinkStatus(link.id, status);
+        link.status = status;
+        this.surveyNotice = { tone: "success", text: `Link ${status}.` };
+      } catch (reason) {
+        this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to update the link.") };
+      }
+    },
+    async revokeCurrentInvitation(invitationId) {
+      if (!invitationId || this.access?.role !== "admin") return;
+      try {
+        if (!this.preview) await revokeSurveyInvitation(invitationId);
+        this.surveyCreatedInvitation = null;
+        this.surveyNotice = { tone: "success", text: "Invitation revoked." };
+      } catch (reason) {
+        this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to revoke the invitation.") };
+      }
     },
     async createCurrentSurveyInvitation() {
       const linkId = this.surveyInvitationLinkId || this.surveyCreatedLink?.id;
