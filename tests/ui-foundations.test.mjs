@@ -8,6 +8,13 @@ const [aoi, helpcenter, participant] = await Promise.all([
   readFile(new URL("src/css/helpcenter.css", root), "utf8"),
   readFile(new URL("src/css/participant-tracker.css", root), "utf8"),
 ]);
+const [app, auth, core, dialogManager, workspace] = await Promise.all([
+  readFile(new URL("src/js/app.js", root), "utf8"),
+  readFile(new URL("src/js/auth.js", root), "utf8"),
+  readFile(new URL("src/js/core.js", root), "utf8"),
+  readFile(new URL("src/js/dialog-manager.js", root), "utf8"),
+  readFile(new URL("src/js/workspace.js", root), "utf8"),
+]);
 
 function tokenMap(block) {
   return Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[\da-f]{6})\s*;/gi)].map((match) => [match[1], match[2]]));
@@ -107,4 +114,17 @@ test("motion, hierarchy, typography, and accent geometry stay restrained", () =>
   assert.match(helpcenter, /\.help-callout,[\s\S]*?\.help-example[\s\S]*?border:\s*1px solid var\(--blue\)/);
   assert.match(helpcenter, /\.helpcenter-hero\s*{[\s\S]*?min-height:\s*200px/);
   assert.match(participant, /\.participant-hero h1[\s\S]*?clamp\(2rem,\s*5vw,\s*3\.4rem\)/);
+});
+
+test("shared foundations normalize routes and protect async dialog state", () => {
+  assert.equal(core.includes("export function pageUrl"), true);
+  assert.equal(core.includes("export function routeForRole"), true);
+  assert.match(auth, /at least 14 characters with upper\/lower case/);
+  assert.match(workspace, /dashboardRefreshSequence/);
+  assert.match(workspace, /sequence !== this\.dashboardRefreshSequence/);
+  assert.match(dialogManager, /MutationObserver/);
+  assert.match(dialogManager, /event\.key === "Escape"/);
+  assert.match(dialogManager, /event\.key !== "Tab"/);
+  assert.match(app, /registerDialogManager\(\)/);
+  assert.match(aoi, /html\.dialog-open[\s\S]*overflow:\s*hidden/);
 });

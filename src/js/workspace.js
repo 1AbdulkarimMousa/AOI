@@ -101,6 +101,7 @@ export function registerWorkspace(Alpine) {
     data: fallbackDashboard,
     ready: false,
     loading: true,
+    dashboardRefreshSequence: 0,
     preview: false,
     error: "",
     view: "today",
@@ -287,6 +288,7 @@ export function registerWorkspace(Alpine) {
     },
 
     destroy() {
+      this.dashboardRefreshSequence += 1;
       window.clearTimeout(this.dailyEodRefreshTimer);
       if (this.dailyEodVisibilityHandler) document.removeEventListener("visibilitychange", this.dailyEodVisibilityHandler);
       if (this.dailyEodFocusHandler) window.removeEventListener("focus", this.dailyEodFocusHandler);
@@ -1434,44 +1436,50 @@ export function registerWorkspace(Alpine) {
         if (sequence === this.dailyEodRefreshSequence) this.scheduleDailyEodRefresh();
       }
     },
-     async refreshDashboard() {
+    async refreshDashboard() {
+      const sequence = ++this.dashboardRefreshSequence;
       this.loading = true;
       this.error = "";
       try {
-         const liveData = await loadDashboard();
-             this.data = {
-               ...liveData,
-               dailyEod: liveData.dailyEod || this.data.dailyEod,
-           campaign: liveData.campaign || fallbackDashboard.campaign,
-           outreachSummary: liveData.outreachSummary || { totalCandidates: 0, contactReady: 0, contacted: 0, responses: 0, interested: 0, confirmed: 0, pmfCandidates: 0, researchNeeded: 0 },
-           categories: liveData.categories || [],
-           candidates: liveData.candidates || [],
-           outreachEvents: liveData.outreachEvents || [],
-            evidenceRecords: liveData.evidenceRecords || [],
-            crmContacts: liveData.crmContacts || [],
-            crmActivity: liveData.crmActivity || [],
-            crmProgress: liveData.crmProgress || { xp: 0, completedToday: 0, streakDays: 0 },
-           recommendations: liveData.recommendations || [],
-           segments: liveData.segments || [],
-           respondents: liveData.respondents || [],
-           sessions: liveData.sessions || [],
-           evidence: liveData.evidence || [],
-           productEvents: liveData.productEvents || [],
-           valueExchange: liveData.valueExchange || [],
-           definitions: liveData.definitions || [],
-           observations: liveData.observations || [],
-           hypotheses: liveData.hypotheses || [],
-           reviewQueue: liveData.reviewQueue || [],
-           gateSnapshots: liveData.gateSnapshots || [],
-          };
+        const liveData = await loadDashboard();
+        if (sequence !== this.dashboardRefreshSequence) return false;
+        this.data = {
+          ...liveData,
+          dailyEod: liveData.dailyEod || this.data.dailyEod,
+          campaign: liveData.campaign || fallbackDashboard.campaign,
+          outreachSummary: liveData.outreachSummary || { totalCandidates: 0, contactReady: 0, contacted: 0, responses: 0, interested: 0, confirmed: 0, pmfCandidates: 0, researchNeeded: 0 },
+          categories: liveData.categories || [],
+          candidates: liveData.candidates || [],
+          outreachEvents: liveData.outreachEvents || [],
+          evidenceRecords: liveData.evidenceRecords || [],
+          crmContacts: liveData.crmContacts || [],
+          crmActivity: liveData.crmActivity || [],
+          crmProgress: liveData.crmProgress || { xp: 0, completedToday: 0, streakDays: 0 },
+          recommendations: liveData.recommendations || [],
+          segments: liveData.segments || [],
+          respondents: liveData.respondents || [],
+          sessions: liveData.sessions || [],
+          evidence: liveData.evidence || [],
+          productEvents: liveData.productEvents || [],
+          valueExchange: liveData.valueExchange || [],
+          definitions: liveData.definitions || [],
+          observations: liveData.observations || [],
+          hypotheses: liveData.hypotheses || [],
+          reviewQueue: liveData.reviewQueue || [],
+          gateSnapshots: liveData.gateSnapshots || [],
+        };
         this.preview = false;
+        return true;
       } catch (reason) {
+        if (sequence !== this.dashboardRefreshSequence) return false;
         this.error = readableError(reason, "Live workspace data is unavailable.");
+        return false;
       } finally {
-        this.loading = false;
+        if (sequence === this.dashboardRefreshSequence) this.loading = false;
       }
     },
     usePreview() {
+      this.dashboardRefreshSequence += 1;
       const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
       this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
       this.preview = true;

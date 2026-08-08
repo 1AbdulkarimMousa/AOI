@@ -59,7 +59,7 @@ export async function signOut() {
 }
 
 export async function completePasswordChange(password, currentPassword = "") {
-  if (!isStrongPassword(password)) throw new Error("Choose a password with at least 12 characters.");
+  if (!isStrongPassword(password)) throw new Error("Choose a stronger password: at least 14 characters with upper/lower case, a digit, and a symbol.");
   const client = getSupabaseClient();
   const { data, error } = await client.functions.invoke("admin-create-user", {
     body: { action: "complete_password_change", password, currentPassword },

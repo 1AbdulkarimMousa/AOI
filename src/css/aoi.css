@@ -84,6 +84,11 @@ html[data-theme="dark"] {
   color-scheme: dark;
 }
 
+html.dialog-open,
+html.dialog-open body {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   background:
