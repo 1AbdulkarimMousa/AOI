@@ -166,6 +166,17 @@ test("validates complete survey settings and immutable analysis metadata", async
   assert.match(sql, /'questionType',question#>>'\{type\}'/i);
 });
 
+test("filters every survey analysis metric by the selected population", async () => {
+  const names = (await readdir(migrationsUrl)).filter((name) => name.endsWith("_survey_analysis_integrity.sql")).sort();
+  assert.equal(names.length, 1);
+  const sql = await readFile(new URL(names[0], migrationsUrl), "utf8");
+
+  assert.match(sql, /response\.response_status = any\(v_allowed\)/g);
+  assert.match(sql, /versionId/);
+  assert.match(sql, /questionType/);
+  assert.match(sql, /question#>>'\{privacy,classification\}' is distinct from 'direct_identifier'/i);
+});
+
 test("keeps questionnaire validation extensions in the effective final validator", async () => {
   const names = (await readdir(migrationsUrl)).filter((name) => name.endsWith("_survey_questionnaire_validation_parity.sql")).sort();
   assert.equal(names.length, 1);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { buildAnalysisQuestions, canReviewSurveyResponse } from "../src/js/surveys/analysis.js";
 
 const root = new URL("../", import.meta.url);
 
@@ -104,6 +105,8 @@ test("wires survey workspace navigation, immutable versions, analysis, and previ
   assert.match(template, /:aria-selected=/);
   assert.match(controller, /surveyAnalysisTab/);
   assert.match(controller, /surveyQuestionAggregate\(/);
+  assert.match(controller, /analysisQuestions\(\)/);
+  assert.match(template, /analysisQuestions\(\)/);
   assert.match(template, /setSurveyAnalysisTab\(/);
   assert.match(controller, /response\.versionDefinition/);
   assert.match(controller, /reviewCurrentSurvey\(version,/);
@@ -173,4 +176,23 @@ test("contains survey layouts on narrow screens and exposes accessible dialogs",
   assert.match(template, /role="dialog"/);
   assert.match(template, /@keydown\.escape/);
   assert.match(template, /aria-modal="true"/);
+});
+
+test("keeps analysis questions separated by immutable response version", () => {
+  const summaries = [
+    { versionId: "v1", questionId: "q1", questionType: "number", definition: { id: "q1", type: "number", title: { en: "Age" } }, values: [20] },
+    { versionId: "v2", questionId: "q1", questionType: "short_text", definition: { id: "q1", type: "short_text", title: { en: "Role" } }, values: ["Dentist"] },
+  ];
+
+  const questions = buildAnalysisQuestions(summaries);
+
+  assert.equal(questions.length, 2);
+  assert.deepEqual(questions.map((question) => [question.versionId, question.type]), [["v1", "number"], ["v2", "short_text"]]);
+});
+
+test("allows only role-correct survey response review transitions", () => {
+  assert.equal(canReviewSurveyResponse("admin", "submitted", "approve"), true);
+  assert.equal(canReviewSurveyResponse("intern", "submitted", "approve"), false);
+  assert.equal(canReviewSurveyResponse("intern", "submitted", "recommend_approve"), true);
+  assert.equal(canReviewSurveyResponse("admin", "approved", "approve"), false);
 });

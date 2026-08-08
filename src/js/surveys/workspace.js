@@ -23,6 +23,7 @@ import {
   validateSurveyDefinition,
 } from "./domain.js";
 import { buildResponseCsv, exportSurveyPackage, importSurveyPackage } from "./import-export.js";
+import { analysisValues, buildAnalysisQuestions, canReviewSurveyResponse } from "./analysis.js";
 
 export const SURVEY_QUESTION_TYPES = [
   ["content", "Instruction / concept"],
@@ -138,6 +139,7 @@ export function createSurveyWorkspaceState() {
     },
     responseSurveyDefinition(response = this.surveySelectedResponse) { return response && response.versionDefinition || this.surveyDefinition || { blocks: [] }; },
     responseSurveyQuestions(response = this.surveySelectedResponse) { return this.surveyQuestions(this.responseSurveyDefinition(response)); },
+    analysisQuestions() { return buildAnalysisQuestions(this.surveyAnalysis?.questions || []); },
     filteredSurveyAssets() {
       const query = this.surveyLibraryQuery.trim().toLowerCase();
       const currentUserId = this.user?.id || this.access?.userId;
@@ -526,6 +528,10 @@ export function createSurveyWorkspaceState() {
     },
     async reviewCurrentResponse(response, action) {
       try {
+        if (!canReviewSurveyResponse(this.access?.role, response.status, action)) {
+          this.surveyNotice = { tone: "error", text: "That response review action is not available for your role or its current status." };
+          return;
+        }
         if (this.preview) response.status = action === "start_review" ? "in_review" : action === "approve" ? "approved" : action === "exclude" ? "excluded" : response.status;
         else {
           await reviewSurveySubmission(response.id, action, this.surveyReviewNotes[response.id] || "");
@@ -565,10 +571,9 @@ export function createSurveyWorkspaceState() {
         if (requestSequence === this.surveyAnalysisRequestSequence) this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to load analysis.") };
       }
     },
-    surveyQuestionSummary(questionId) { return this.surveyAnalysis?.questions?.find((item) => item.questionId === questionId) || { count: 0, values: [] }; },
+    surveyQuestionSummary(questionId, versionId = null) { return this.surveyAnalysis?.questions?.find((item) => item.questionId === questionId && (!versionId || item.versionId === versionId)) || { count: 0, values: [] }; },
     surveyQuestionAggregate(question) {
-      const summaries = (this.surveyAnalysis?.questions || []).filter((item) => item.questionId === question.id);
-      const values = summaries.flatMap((item) => item.values || []);
+      const values = analysisValues(this.surveyAnalysis?.questions || [], question);
       if (["number", "rating", "nps", "likert", "calculated"].includes(question.type)) {
         const numeric = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
         return { kind: "numeric", count: numeric.length, mean: numeric.length ? numeric.reduce((sum, value) => sum + value, 0) / numeric.length : 0, minimum: numeric[0], maximum: numeric.at(-1), median: numeric.length ? numeric[Math.floor(numeric.length / 2)] : null, values: numeric };

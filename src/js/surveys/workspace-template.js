@@ -72,7 +72,12 @@ const surveyWorkspaceTemplateBase = String.raw`
   <div x-show="surveyNew.open" class="modal-backdrop" @mousedown.self="surveyNew.open=false" @keydown.escape.window="surveyNew.open=false"><section class="command-modal survey-new-modal" role="dialog" aria-modal="true" aria-labelledby="survey-new-title" tabindex="-1"><div class="drawer-header"><span class="eyebrow">Reusable research instrument</span><button class="icon-button" @click="surveyNew.open=false" aria-label="Close">×</button></div><h2 id="survey-new-title">Create a bilingual survey</h2><form class="research-form" @submit.prevent="createSurveyFromForm()"><label><span>Type</span><select x-model="surveyNew.assetType"><option value="survey">Project survey</option><option value="template">Reusable template</option></select></label><label><span>English title</span><input x-model.trim="surveyNew.titleEn" required autofocus></label><label><span>Chinese title</span><input x-model.trim="surveyNew.titleZh" required></label><button class="button button-primary" :disabled="surveySaving" x-text="surveySaving?'Creating…':'Create draft'"></button></form></section></div>
 </div>`;
 
-export const surveyWorkspaceTemplate = surveyWorkspaceTemplateBase.replace(
+export const surveyWorkspaceTemplate = surveyWorkspaceTemplateBase
+  .replace(
+    '<template x-for="question in surveyQuestions()" :key="question.id"><article class="panel survey-question-analysis">',
+    '<template x-for="question in analysisQuestions()" :key="question.analysisKey"><article class="panel survey-question-analysis">',
+  )
+  .replace(
   '<button class="text-button" @click="toggleSurveyOther(selectedSurveyQuestion())"',
   '<button x-show="[\'single_choice\',\'multiple_choice\',\'dropdown\',\'yes_no\'].includes(selectedSurveyQuestion().type)" class="text-button" @click="toggleSurveyOther(selectedSurveyQuestion())"',
-);
+  );
