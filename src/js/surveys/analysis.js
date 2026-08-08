@@ -20,3 +20,7 @@ export function canReviewSurveyResponse(role, status, action) {
     && (action === "start_review" ? status === "submitted" : ["submitted", "in_review"].includes(status));
   return role === "intern" && status === "submitted" && ["start_review", "recommend_approve", "recommend_reject"].includes(action);
 }
+
+export function shouldConfirmSurveyRoute(isSurveyWorkspaceActive, targetIsSurveyWorkspace, dirty) {
+  return Boolean(isSurveyWorkspaceActive && dirty && !targetIsSurveyWorkspace);
+}

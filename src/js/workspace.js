@@ -26,6 +26,7 @@ import { fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
 import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues, validateResearchRecord } from "./pmf.js";
+import { shouldConfirmSurveyRoute } from "./surveys/analysis.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
@@ -468,9 +469,11 @@ export function registerWorkspace(Alpine) {
       if (route.relationshipsTab === "recruitment") this.recruitmentMounted = true;
     },
 
-    setView(view) {
+    async setView(view) {
       const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : null;
       const route = resolveWorkspaceRoute({ view, tab, section: view === "relationships" ? this.outreachSection : null, defaultTodayTab: this.todayTab });
+      if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, route.view === "research" && route.researchTab === "surveys", this.surveyDirty)
+        && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(route);
       this.replaceWorkspaceLocation();
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
@@ -486,20 +489,24 @@ export function registerWorkspace(Alpine) {
       this.matrixLayer = layer.code;
       this.setView("analyze");
     },
-    setTodayTab(tab) {
+    async setTodayTab(tab) {
+      if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, false, this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "today", tab, defaultTodayTab: this.todayTab }));
       this.replaceWorkspaceLocation();
     },
-    setRelationshipsTab(tab) {
+    async setRelationshipsTab(tab) {
+      if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, false, this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab, section: tab === "outreach" ? this.outreachSection : null }));
       this.replaceWorkspaceLocation();
     },
-    setResearchTab(tab) {
+    async setResearchTab(tab) {
+      if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, tab === "surveys", this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "research", tab }));
       this.replaceWorkspaceLocation();
       if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
     },
-    setOutreachSection(section) {
+    async setOutreachSection(section) {
+      if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, false, this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab: "outreach", section }));
       this.replaceWorkspaceLocation();
     },
@@ -526,9 +533,14 @@ export function registerWorkspace(Alpine) {
       this.routePopstateHandler ||= () => this.syncRouteFromLocation();
       window.addEventListener("popstate", this.routePopstateHandler);
     },
-    syncRouteFromLocation() {
+    async syncRouteFromLocation() {
       const params = new URLSearchParams(location.search);
       const route = resolveWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), defaultView: "today", defaultTodayTab: this.expectedRole === "intern" ? "relationships" : "briefing" });
+      if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, route.view === "research" && route.researchTab === "surveys", this.surveyDirty)
+        && !await this.confirmSurveyNavigation()) {
+        this.replaceWorkspaceLocation(true);
+        return false;
+      }
       this.applyWorkspaceRoute(route);
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports(1);
       if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();

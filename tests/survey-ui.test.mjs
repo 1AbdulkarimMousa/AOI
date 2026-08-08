@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildAnalysisQuestions, canReviewSurveyResponse } from "../src/js/surveys/analysis.js";
+import { buildAnalysisQuestions, canReviewSurveyResponse, shouldConfirmSurveyRoute } from "../src/js/surveys/analysis.js";
 
 const root = new URL("../", import.meta.url);
 
@@ -195,4 +195,10 @@ test("allows only role-correct survey response review transitions", () => {
   assert.equal(canReviewSurveyResponse("intern", "submitted", "approve"), false);
   assert.equal(canReviewSurveyResponse("intern", "submitted", "recommend_approve"), true);
   assert.equal(canReviewSurveyResponse("admin", "approved", "approve"), false);
+});
+
+test("guards leaving a dirty survey workspace for another route", () => {
+  assert.equal(shouldConfirmSurveyRoute(true, false, true), true);
+  assert.equal(shouldConfirmSurveyRoute(true, true, true), false);
+  assert.equal(shouldConfirmSurveyRoute(false, false, true), false);
 });
