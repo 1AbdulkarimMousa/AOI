@@ -82,6 +82,8 @@ test("secures public survey operations in a dedicated Edge Function", async () =
   assert.match(source, /load|start|save|submit/);
   assert.match(source, /SURVEY_LINK_UNAVAILABLE/);
   assert.match(source, /idempotency/i);
+  assert.match(source, /p_token: token/);
+  assert.match(source, /p_invitation_token: body\.invitationToken/);
   assert.match(source, /ALLOWED_ORIGINS/);
   assert.doesNotMatch(source, /"Access-Control-Allow-Origin":\s*"\*"/);
   assert.match(config, /\[functions\.survey-public\]/);

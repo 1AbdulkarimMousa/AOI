@@ -98,6 +98,9 @@ test("guards person detail races, includes password setup status, and reconciles
   assert.match(source, /requestId !== this\.personRequestId/);
   assert.match(template, /value="password_change_required"/);
   assert.match(edge, /reconciliationRequired:\s*true/);
+  assert.match(edge, /reconcile_own_password/);
+  assert.match(edge, /banned_until/);
+  assert.match(edge, /otherActiveError/);
   assert.match(source, /result\.reconciliationRequired/);
   assert.match(source, /await this\.refresh\(\)/);
 });

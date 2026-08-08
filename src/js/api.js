@@ -382,13 +382,22 @@ export async function runAdministrationUserAction(action, input) {
   const { data, error } = await getSupabaseClient().functions.invoke("admin-create-user", {
     body: { action, ...input },
   });
-  if (error) throw new Error(error.message || "Unable to update the user.");
-  if (data?.error) throw new Error(data.error);
+  if (error || data?.error || data?.reconciliationAction) {
+    const reason = new Error(data?.error || data?.message || error?.message || "Unable to update the user.");
+    reason.reconciliationRequired = Boolean(data?.reconciliationRequired);
+    reason.reconciliationAction = data?.reconciliationAction || "";
+    throw reason;
+  }
   return data;
 }
 
 export async function changeOwnAdministrationPassword(input) {
-  return runAdministrationUserAction("change_own_password", input);
+  try {
+    return await runAdministrationUserAction("change_own_password", input);
+  } catch (reason) {
+    if (reason.reconciliationAction === "reconcile_own_password") return runAdministrationUserAction("reconcile_own_password", {});
+    throw reason;
+  }
 }
 
 export async function resetAdministrationUserPassword(userId, input) {

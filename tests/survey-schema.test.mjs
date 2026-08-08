@@ -100,6 +100,8 @@ test("hardens public sessions, revisions, invitations, and idempotency", async (
   assert.match(sql, /SURVEY_REVISION_RESUMED/);
   assert.match(sql, /jsonb_build_object\('accepted',true,'locale',v_submission\.locale,'versionId',v_submission\.version_id/i);
   assert.match(sql, /v_asset\.lifecycle_status<>'published'/i);
+  assert.match(sql, /p_token text[\s\S]*p_invitation_token text/i);
+  assert.match(sql, /link\.link_status = 'active'/i);
 });
 
 test("separates direct identifiers and excludes inactive answers from review payloads", async () => {
@@ -110,6 +112,26 @@ test("separates direct identifiers and excludes inactive answers from review pay
   assert.match(sql, /question#>>'\{privacy,classification\}'='direct_identifier'/i);
   assert.match(sql, /answer\.is_active/i);
   assert.match(sql, /'identifiers'/i);
+  assert.match(sql, /DIRECT_IDENTIFIER_CLASSIFICATION_REQUIRED/i);
+});
+
+test("keeps survey analysis and definition validation assignment-aware", async () => {
+  const sql = await currentSchema();
+
+  assert.match(sql, /rpc_aoi_survey_analysis[\s\S]*SURVEY_ASSIGNMENT_REQUIRED/i);
+  assert.match(sql, /BRANCH_TARGET_MISSING/i);
+  assert.match(sql, /CALCULATION_REFERENCE_INVALID/i);
+  assert.match(sql, /CALCULATION_CYCLE/i);
+  assert.match(sql, /BRANCH_CYCLE/i);
+});
+
+test("preserves PMF provenance and validates legacy external URLs", async () => {
+  const sql = await currentSchema();
+
+  assert.match(sql, /pmf_observations_respondent_restrict_fk/i);
+  assert.match(sql, /pmf_observations_session_restrict_fk/i);
+  assert.match(sql, /update public\.evidence_records set source_link = null/i);
+  assert.match(sql, /\^https\?:\/\/\[\^\[:space:\]\/\?\#\]\+/i);
 });
 
 test("preserves survey lifecycle controls and direct-identifier audit history", async () => {

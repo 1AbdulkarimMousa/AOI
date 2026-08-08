@@ -138,6 +138,8 @@ Deno.serve(async (request) => {
       p_submission_id: body.submissionId,
       p_resume_token: body.resumeToken,
       p_idempotency_key: body.idempotencyKey,
+      p_token: token,
+      p_invitation_token: body.invitationToken || null,
     });
     if (replay.error) {
       const error = publicError(replay.error.message);

@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 type AdminUserInput = {
-  action?: "create" | "archive" | "restore" | "complete_password_change" | "change_own_password" | "reset_user_password" | "import";
+  action?: "create" | "archive" | "restore" | "complete_password_change" | "change_own_password" | "reconcile_own_password" | "reset_user_password" | "import";
   userId?: string;
   replacementUserId?: string;
   reason?: string;
@@ -98,7 +98,7 @@ async function cleanupProvisioning(adminClient: SupabaseClient<any>, organizatio
     const result = await operation;
     if (result.error) errors.push(result.error.message);
   }
-  const authResult = errors.length ? null : await adminClient.auth.admin.deleteUser(userId);
+  const authResult = await adminClient.auth.admin.deleteUser(userId);
   if (authResult?.error) errors.push(authResult.error.message);
   return errors;
 }
@@ -174,6 +174,14 @@ Deno.serve(async (request) => {
     .limit(1)
     .maybeSingle();
   if (membershipError || !membership) return json(origin, 403, { error: "Administrator permission is required." });
+  if (action === "reconcile_own_password") {
+    const reconciled = await adminClient.rpc("rpc_admin_reconcile_self_password_change", {
+      p_organization_id: membership.organization_id,
+      p_actor_id: callerId,
+    });
+    if (reconciled.error) return json(origin, 409, { reconciliationRequired: true, error: "Workspace activation still needs administrator attention." });
+    return json(origin, 200, { reconciled: true });
+  }
   const { data: callerProfile } = await adminClient.from("profiles").select("status,must_change_password").eq("id", callerId).maybeSingle();
   if (callerProfile?.status !== "active" || callerProfile.must_change_password) return json(origin, 403, { error: "Complete secure account activation before using Administration." });
 
@@ -199,9 +207,14 @@ Deno.serve(async (request) => {
       p_organization_id: membership.organization_id,
       p_actor_id: callerId,
     });
+    if (completed.error) return json(origin, 409, {
+      changed: false,
+      reconciliationRequired: true,
+      reconciliationAction: "reconcile_own_password",
+      message: "Auth accepted the password, but workspace activation needs reconciliation.",
+    });
     return json(origin, 200, {
       changed: true,
-      auditWarning: Boolean(completed.error),
     });
   }
 
@@ -259,26 +272,40 @@ Deno.serve(async (request) => {
     if (!body.packageData || !body.mode || !body.previewJobId) return json(origin, 400, { error: "Preview the administration package before applying it." });
     if (body.mode === "full_restore" && !membership.is_owner) return json(origin, 403, { error: "Only the organization owner can run a full restore." });
     const people = body.mode === "full_restore" && Array.isArray(body.packageData.people) ? body.packageData.people as Array<Record<string, unknown>> : [];
-    const previous: Array<{ userId: string; banned: boolean }> = [];
+    const previous: Array<{ userId: string; banDuration: string }> = [];
+    const restorePrevious = async () => {
+      const restoreErrors: string[] = [];
+      for (const item of previous) {
+        const restored = await adminClient.auth.admin.updateUserById(item.userId, { ban_duration: item.banDuration });
+        if (restored.error) restoreErrors.push(restored.error.message);
+      }
+      return restoreErrors;
+    };
     for (const person of people) {
       const userId = String(person.userId || "");
       if (!normalizeUuid(userId)) continue;
       const { data: current } = await adminClient.from("organization_memberships").select("status").eq("organization_id", membership.organization_id).eq("user_id", userId).maybeSingle();
       if (!current) continue;
+      const existingAuth = await adminClient.auth.admin.getUserById(userId);
+      if (existingAuth.error || !existingAuth.data.user) return json(origin, 500, { error: `Unable to verify Auth access for ${userId}.` });
+      const bannedUntil = existingAuth.data.user.banned_until;
+      const remainingHours = bannedUntil ? Math.ceil((new Date(bannedUntil).getTime() - Date.now()) / 3600000) : 0;
+      const banDuration = remainingHours > 0 ? `${remainingHours}h` : "none";
       const shouldBan = ["archived", "disabled"].includes(String(person.membershipStatus || ""));
-      const { count: otherActive } = await adminClient.from("organization_memberships").select("user_id", { count: "exact", head: true }).eq("user_id", userId).eq("status", "active").neq("organization_id", membership.organization_id);
-      const desiredBan = shouldBan && !otherActive;
-      previous.push({ userId, banned: ["archived", "disabled"].includes(current.status) && !otherActive });
+      const { count: otherActive, error: otherActiveError } = await adminClient.from("organization_memberships").select("user_id", { count: "exact", head: true }).eq("user_id", userId).eq("status", "active").neq("organization_id", membership.organization_id);
+      if (otherActiveError) return json(origin, 500, { error: `Unable to verify organization access for ${userId}.` });
+      const desiredBan = shouldBan && (otherActive ?? 0) === 0;
+      previous.push({ userId, banDuration });
       const authUpdate = await adminClient.auth.admin.updateUserById(userId, { ban_duration: desiredBan ? "876000h" : "none" });
       if (authUpdate.error) {
-        for (const item of previous) await adminClient.auth.admin.updateUserById(item.userId, { ban_duration: item.banned ? "876000h" : "none" });
-        return json(origin, 400, { error: `Unable to synchronize Auth access for ${userId}.` });
+        const restoreErrors = await restorePrevious();
+        return json(origin, restoreErrors.length ? 500 : 400, { error: restoreErrors.length ? "Import failed and Auth access needs reconciliation." : `Unable to synchronize Auth access for ${userId}.`, reconciliationRequired: restoreErrors.length > 0 });
       }
     }
     const imported = await userClient.rpc("rpc_admin_import_data", { p_package: body.packageData, p_mode: body.mode, p_preview_job_id: body.previewJobId, p_preview_mode: body.mode });
     if (imported.error) {
-      for (const item of previous) await adminClient.auth.admin.updateUserById(item.userId, { ban_duration: item.banned ? "876000h" : "none" });
-      return json(origin, 400, { error: imported.error.message });
+      const restoreErrors = await restorePrevious();
+      return json(origin, restoreErrors.length ? 500 : 400, { error: restoreErrors.length ? "Import failed and Auth access needs reconciliation." : imported.error.message, reconciliationRequired: restoreErrors.length > 0 });
     }
     return json(origin, 200, { result: imported.data });
   }
@@ -291,7 +318,8 @@ Deno.serve(async (request) => {
       p_departure_date: body.departureDate || new Date().toISOString().slice(0, 10),
     });
     if (error) return json(origin, 400, { error: error.message });
-    const { count: activeMemberships } = await adminClient.from("organization_memberships").select("user_id", { count: "exact", head: true }).eq("user_id", body.userId).eq("status", "active");
+    const { count: activeMemberships, error: activeMembershipError } = await adminClient.from("organization_memberships").select("user_id", { count: "exact", head: true }).eq("user_id", body.userId).eq("status", "active");
+    if (activeMembershipError) return json(origin, 500, { result: data, reconciliationRequired: true, reconciliation: "auth_suspension", message: "Work was archived, but Auth suspension could not be safely evaluated." });
     const banned = activeMemberships ? { error: null } : await adminClient.auth.admin.updateUserById(body.userId, { ban_duration: "876000h" });
     if (banned.error) return json(origin, 200, {
       result: data,
