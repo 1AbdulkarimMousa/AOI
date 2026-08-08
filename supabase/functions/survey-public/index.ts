@@ -18,7 +18,6 @@ type SurveyRequest = {
   fileName?: string;
   contentType?: string;
   questionId?: string;
-  embedOrigin?: string;
 };
 
 const configuredOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
@@ -155,8 +154,7 @@ Deno.serve(async (request) => {
   published = loaded.data as Record<string, unknown>;
   if (published.mode === "embed") {
     const linkOrigins = Array.isArray(published.allowedOrigins) ? published.allowedOrigins : [];
-    const requestedOrigin = String(body.embedOrigin || origin);
-    if (!linkOrigins.includes(requestedOrigin)) {
+    if (!linkOrigins.includes(origin)) {
       const error = publicError("SURVEY_EMBED_ORIGIN_DENIED");
       return json(origin, error.status, { error: error.message, code: error.code });
     }

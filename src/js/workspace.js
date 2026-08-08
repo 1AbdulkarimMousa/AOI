@@ -194,7 +194,7 @@ export function registerWorkspace(Alpine) {
       passwordReminderOpen: false,
       passwordReminderSnoozing: false,
       passwordChanging: false,
-      passwordChangeForm: { password: "", confirmation: "" },
+      passwordChangeForm: { currentPassword: "", password: "", confirmation: "" },
       savingDailyEodAdmin: false,
       dailyEodReportFilters: { search: "", fromDate: "", toDate: "", authorRole: "", projectStatus: "", workflowStatus: "" },
       dailyEodReports: { items: [], total: 0, page: 1, pageSize: 25 },
@@ -1092,15 +1092,19 @@ export function registerWorkspace(Alpine) {
       }
     },
     async savePasswordChange() {
+      if (!this.passwordChangeForm.currentPassword) {
+        this.showToast("Current password required", "Enter your current password to confirm the change.");
+        return;
+      }
       if (this.passwordChangeForm.password !== this.passwordChangeForm.confirmation) {
         this.showToast("Passwords do not match", "Enter the same new password twice.");
         return;
       }
       this.passwordChanging = true;
       try {
-        await changePassword(this.passwordChangeForm.password);
+        await changePassword(this.passwordChangeForm.password, this.passwordChangeForm.currentPassword);
         this.access = { ...this.access, passwordChangedAt: new Date().toISOString(), passwordReminderSnoozedUntil: null };
-        this.passwordChangeForm = { password: "", confirmation: "" };
+        this.passwordChangeForm = { currentPassword: "", password: "", confirmation: "" };
         this.passwordReminderOpen = false;
         this.showToast("Password updated", "Your account now has a unique password.");
       } catch (reason) {

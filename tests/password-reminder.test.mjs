@@ -18,5 +18,11 @@ test("calculates a seven-day reminder snooze and validates replacement passwords
   const now = new Date("2026-08-05T12:00:00.000Z");
   assert.equal(reminder.snoozeUntil(now).toISOString(), "2026-08-12T12:00:00.000Z");
   assert.equal(reminder.isStrongPassword("123456"), false);
-  assert.equal(reminder.isStrongPassword("a-longer-password-123"), true);
+  assert.equal(reminder.isStrongPassword("a-longer-password-123"), false, "lacks uppercase and symbol");
+  assert.equal(reminder.isStrongPassword("AnotherLonger-Pass123!"), true);
+  assert.equal(reminder.isStrongPassword("alllowercase14!"), false, "lacks uppercase and digit");
+  assert.equal(reminder.isStrongPassword("ALLUPPERCASE14!"), false, "lacks lowercase");
+  assert.equal(reminder.isStrongPassword("MixedCaseNoDigits!"), false, "lacks digit");
+  assert.equal(reminder.isStrongPassword("MixedCase14With"), false, "lacks symbol");
+  assert.equal(reminder.isStrongPassword("Short1!"), false, "too short");
 });

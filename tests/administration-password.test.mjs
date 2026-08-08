@@ -30,18 +30,20 @@ test("validates self password changes before calling Auth", () => {
     confirmPassword: "different",
   }), [
     "Enter your current password.",
-    "New passwords must contain at least 12 characters.",
+    "New passwords must contain at least 14 characters with upper/lower case, a digit, and a symbol.",
     "New password confirmation does not match.",
   ]);
   assert.deepEqual(passwordModule.validateSelfPasswordChange({
     currentPassword: "ExistingPass123!",
     newPassword: "ExistingPass123!",
     confirmPassword: "ExistingPass123!",
-  }), ["Choose a new password that differs from your current password."]);
+  }), [
+    "Choose a new password that differs from your current password.",
+  ]);
   assert.deepEqual(passwordModule.validateSelfPasswordChange({
-    currentPassword: "ExistingPass123!",
-    newPassword: "ReplacementPass456!",
-    confirmPassword: "ReplacementPass456!",
+    currentPassword: "ExistingPass12345!",
+    newPassword: "Replacement-Pass456!",
+    confirmPassword: "Replacement-Pass456!",
   }), []);
 });
 
@@ -54,7 +56,7 @@ test("validates generated and custom resets", () => {
     confirmPassword: "different",
     reason: "Requested by user",
   }), [
-    "Temporary passwords must contain at least 12 characters.",
+    "Temporary passwords must contain at least 14 characters with upper/lower case, a digit, and a symbol.",
     "Temporary password confirmation does not match.",
   ]);
   assert.deepEqual(passwordModule.validatePasswordReset({ mode: "generated", reason: "Requested by user" }), []);
@@ -100,7 +102,8 @@ test("secures self changes and administrator resets in the Edge Function", async
   assert.match(source, /signInWithPassword/);
   assert.match(source, /crypto\.getRandomValues/);
   assert.match(source, /generatedPassword/);
-  assert.match(source, /password\.length < 12/);
+  assert.match(source, /password\.length < 14/);
+  assert.match(source, /isStrongPassword/);
   assert.match(source, /rpc_admin_prepare_password_reset/);
   assert.match(source, /rpc_admin_restore_password_state/);
   assert.match(source, /recoverySession/);

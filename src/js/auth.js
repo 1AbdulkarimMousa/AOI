@@ -76,10 +76,22 @@ export async function requestPasswordReset(email, redirectTo) {
 }
 
 export async function changePassword(password, currentPassword = "") {
-  if (!isStrongPassword(password)) throw new Error("Choose a password with at least 12 characters.");
+  if (!isStrongPassword(password)) throw new Error("Choose a stronger password: at least 14 characters with upper/lower case, a digit, and a symbol.");
   const client = getSupabaseClient();
   const access = await requireWorkspaceAccess();
   if (access.mustChangePassword) return completePasswordChange(password, currentPassword);
+  const current = String(currentPassword || "");
+  if (!current) throw new Error("Enter your current password to confirm the change.");
+  if (current === password) throw new Error("Choose a new password that differs from your current password.");
+  const session = await getSession();
+  const email = session?.user?.email;
+  if (!email) throw new Error("Your session could not be verified. Sign in again.");
+  const verificationClient = getSupabaseClient();
+  const { data: verification, error: verificationError } = await verificationClient.auth.signInWithPassword({
+    email,
+    password: current,
+  });
+  if (verificationError || !verification.user) throw new Error("Your current password is incorrect.");
   const updated = await client.auth.updateUser({ password });
   if (updated.error) throw new Error(updated.error.message);
   const recorded = await client.rpc("rpc_record_password_changed_at");

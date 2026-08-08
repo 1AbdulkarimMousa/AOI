@@ -13,5 +13,10 @@ export function snoozeUntil(now = new Date()) {
 }
 
 export function isStrongPassword(password) {
-  return typeof password === "string" && password.length >= 12;
+  if (typeof password !== "string" || password.length < 14) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  if (!/[^A-Za-z0-9]/.test(password)) return false;
+  return true;
 }

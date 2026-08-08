@@ -74,6 +74,19 @@ function generateTemporaryPassword() {
   return password.join("");
 }
 
+function isStrongPassword(password: string) {
+  if (typeof password !== "string" || password.length < 14) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  if (!/[^A-Za-z0-9]/.test(password)) return false;
+  return true;
+}
+
+function normalizeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 async function cleanupProvisioning(adminClient: SupabaseClient<any>, organizationId: string, userId: string) {
   const errors: string[] = [];
   for (const operation of [
@@ -129,7 +142,8 @@ Deno.serve(async (request) => {
     const currentPassword = String(body.currentPassword || "");
     const authMethods = Array.isArray(claimData?.claims?.amr) ? claimData.claims.amr as Array<{ method?: string }> : [];
     const recoverySession = authMethods.some((method) => method?.method === "recovery");
-    if (password.length < 12) return json(origin, 400, { error: "Choose a password with at least 12 characters." });
+    if (password.length < 14) return json(origin, 400, { error: "Choose a password with at least 14 characters." });
+    if (!isStrongPassword(password)) return json(origin, 400, { error: "Use at least 14 characters with upper/lower case, a digit, and a symbol." });
     if (!recoverySession) {
       if (!currentPassword) return json(origin, 400, { error: "Enter your current temporary password." });
       if (currentPassword === password) return json(origin, 400, { error: "Choose a password that differs from your temporary password." });
@@ -167,7 +181,8 @@ Deno.serve(async (request) => {
     const currentPassword = String(body.currentPassword || "");
     const password = String(body.newPassword || "");
     if (!currentPassword) return json(origin, 400, { error: "Enter your current password." });
-    if (password.length < 12) return json(origin, 400, { error: "New passwords must contain at least 12 characters." });
+    if (password.length < 14) return json(origin, 400, { error: "New passwords must contain at least 14 characters." });
+    if (!isStrongPassword(password)) return json(origin, 400, { error: "Use at least 14 characters with upper/lower case, a digit, and a symbol." });
     if (password === currentPassword) return json(origin, 400, { error: "Choose a new password that differs from your current password." });
 
     const authUser = await adminClient.auth.admin.getUserById(callerId);
@@ -194,11 +209,12 @@ Deno.serve(async (request) => {
     const targetUserId = String(body.userId || "");
     const reason = String(body.reason || "").trim();
     const resetMode = body.resetMode === "custom" ? "custom" : "generated";
-    if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) return json(origin, 400, { error: "Choose a valid user to reset." });
+    if (!normalizeUuid(targetUserId)) return json(origin, 400, { error: "Choose a valid user to reset." });
     if (targetUserId === callerId) return json(origin, 400, { error: "Use Change my password for your own account." });
     if (reason.length < 3) return json(origin, 400, { error: "Record why this password is being reset." });
     const generatedPassword = resetMode === "generated" ? generateTemporaryPassword() : String(body.password || "");
-    if (generatedPassword.length < 12) return json(origin, 400, { error: "Temporary passwords must contain at least 12 characters." });
+    if (generatedPassword.length < 14) return json(origin, 400, { error: "Temporary passwords must contain at least 14 characters." });
+    if (!isStrongPassword(generatedPassword)) return json(origin, 400, { error: "Temporary passwords must contain at least 14 characters with upper/lower case, a digit, and a symbol." });
 
     const prepared = await adminClient.rpc("rpc_admin_prepare_password_reset", {
       p_organization_id: membership.organization_id,
@@ -209,7 +225,7 @@ Deno.serve(async (request) => {
     });
     if (prepared.error) return json(origin, 400, { error: prepared.error.message });
 
-    const updated = await adminClient.auth.admin.updateUserById(targetUserId, { password: generatedPassword, email_confirm: true });
+    const updated = await adminClient.auth.admin.updateUserById(targetUserId, { password: generatedPassword });
     if (updated.error) {
       const restored = await adminClient.rpc("rpc_admin_restore_password_state", {
         p_organization_id: membership.organization_id,
@@ -246,7 +262,7 @@ Deno.serve(async (request) => {
     const previous: Array<{ userId: string; banned: boolean }> = [];
     for (const person of people) {
       const userId = String(person.userId || "");
-      if (!/^[0-9a-f-]{36}$/i.test(userId)) continue;
+      if (!normalizeUuid(userId)) continue;
       const { data: current } = await adminClient.from("organization_memberships").select("status").eq("organization_id", membership.organization_id).eq("user_id", userId).maybeSingle();
       if (!current) continue;
       const shouldBan = ["archived", "disabled"].includes(String(person.membershipStatus || ""));

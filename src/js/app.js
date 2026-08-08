@@ -1,6 +1,7 @@
 import Alpine from "alpinejs";
 import { createIcons, Sparkles } from "lucide";
 import "../css/aoi.css";
+import { registerSessionGuard } from "./session-guard.js";
 
 window.Alpine = Alpine;
 
@@ -65,3 +66,9 @@ if (page === "survey") {
 
 Alpine.start();
 createIcons({ icons: { Sparkles } });
+
+if (page) {
+  try {
+    registerSessionGuard(page);
+  } catch {}
+}

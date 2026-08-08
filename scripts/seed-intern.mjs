@@ -8,11 +8,14 @@ if (existsSync(".env.local")) loadEnvFile(".env.local");
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const bootstrapPassword = "123456";
+const bootstrapPassword = process.env.AOI_BOOTSTRAP_PASSWORD ?? "";
 const resetAllPasswords = process.env.AOI_RESET_ALL_PASSWORDS === "1";
 
 if (!supabaseUrl || !serviceRoleKey) throw new Error("Supabase URL and service-role key are required.");
 if (!resetAllPasswords) throw new Error("Set AOI_RESET_ALL_PASSWORDS=1 to acknowledge the organization-wide password reset.");
+if (!bootstrapPassword || bootstrapPassword.length < 14 || !/[A-Z]/.test(bootstrapPassword) || !/[a-z]/.test(bootstrapPassword) || !/[0-9]/.test(bootstrapPassword) || !/[^A-Za-z0-9]/.test(bootstrapPassword)) {
+  throw new Error("Set AOI_BOOTSTRAP_PASSWORD to a strong value (at least 14 characters with mixed case, digit, and symbol).");
+}
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
