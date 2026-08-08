@@ -327,7 +327,7 @@ export function registerWorkspace(Alpine) {
       return this.data.tasks;
     },
     get canUpdateSelectedTask() {
-      return this.access?.role === "intern" && this.selectedTask && !["completed", "submitted"].includes(this.selectedTask.status);
+      return this.access?.role === "intern" && this.selectedTask && !["submitted", "approved", "completed", "cancelled"].includes(this.selectedTask.status);
     },
     get focusTasks() { return this.data.tasks.filter((task) => ["submitted", "revision_requested", "blocked"].includes(task.status)).slice(0, 3); },
     get dailyEod() { return this.data.dailyEod || {}; },
@@ -424,6 +424,7 @@ export function registerWorkspace(Alpine) {
         segments: this.data.segments || [],
         definitions: this.data.definitions || [],
         observations: this.data.observations || [],
+        respondents: this.researchRespondents,
       });
     },
     get activeMatrixRows() { return this.pmfMatrices[this.matrixLayer] || []; },
@@ -577,7 +578,7 @@ export function registerWorkspace(Alpine) {
       this.$nextTick(() => this.focusDialog(".task-drawer"));
     },
     openTaskCheckpoint() {
-      const task = this.data.tasks.find((item) => !["completed", "submitted"].includes(item.status));
+      const task = this.data.tasks.find((item) => !["completed", "submitted", "approved", "cancelled"].includes(item.status));
       if (task) this.selectTask(task);
       else this.showToast("No open task", "There is no task available for a checkpoint update.");
     },
@@ -878,6 +879,12 @@ export function registerWorkspace(Alpine) {
       }
       this.researchNotice = null;
       window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    continueCollection(recordType) {
+      const record = this.selectedCollectRecord;
+      const respondentId = record?.respondentId || (record?.recordType === "respondent" ? record.id : "");
+      this.closeCollectRecord();
+      this.startCollectionRecord(recordType, respondentId);
     },
     async openCollectRecord(record) {
       const requestId = ++this.collectDetailRequest;

@@ -56,6 +56,11 @@ export function readableError(reason, fallback) {
   if (value.includes("EOD_STALE_WRITE")) return "This EOD brief changed in another session. Reload it before saving.";
   if (value.includes("EOD_ADMIN_EDIT_REASON_REQUIRED")) return "Add a short reason for the administrator change.";
   if (value.includes("EOD_ALREADY_COMPLETED")) return "This EOD brief is complete and can now be changed only by an administrator.";
+  if (value.includes("TASK_CHECKPOINT_NOTE_REQUIRED")) return "Add a checkpoint note before completing or resubmitting this task.";
+  if (value.includes("TASK_COMPLETION_PROGRESS_REQUIRED")) return "Set progress to 100% before completing this task.";
+  if (value.includes("TASK_CHECKPOINT_LOCKED")) return "This task is locked after submission or completion.";
+  if (value.includes("TASK_RESUBMISSION_INVALID")) return "Only a task sent back for revision can be resubmitted.";
+  if (value.includes("TASK_TRANSITION_INVALID")) return "That task state change is not allowed from the current status.";
   if (value.includes("EOD_NOT_REQUIRED_TODAY")) return "EOD briefs are required Monday through Friday.";
   if (value.includes("EOD_")) return "Check every required EOD field and try again.";
   if (value.toLowerCase().includes("invalid login")) return "The email or password is incorrect.";

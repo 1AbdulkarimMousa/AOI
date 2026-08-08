@@ -17,6 +17,18 @@ test("adds an assignment-validated task checkpoint contract", async () => {
   assert.match(workspace, /updateTaskCheckpoint/);
 });
 
+test("ships the Phase 4 workflow integrity migration", async () => {
+  const migration = await readFile(new URL("../supabase/migrations/20260808010000_workflow_integrity.sql", import.meta.url), "utf8");
+  assert.match(migration, /TASK_CHECKPOINT_NOTE_REQUIRED/);
+  assert.match(migration, /TASK_COMPLETION_PROGRESS_REQUIRED/);
+  assert.match(migration, /TASK_CHECKPOINT_LOCKED/);
+  assert.match(migration, /TASK_TRANSITION_INVALID/);
+  assert.match(migration, /consent_status = ''granted''/);
+  assert.match(migration, /rpc_aoi_daily_eod_reports\(jsonb,integer,integer\)/);
+  assert.match(migration, /brief\.project_id = v_project_id/);
+  assert.match(migration, /GATE_SNAPSHOT_PATCH_FAILED/);
+});
+
 test("provisions the CRM outcome onboarding step", async () => {
   const migration = await readFile(new URL("../supabase/migrations/202608050001_intern_workflow_controls.sql", import.meta.url), "utf8");
   assert.match(migration, /log_crm_outcome/);

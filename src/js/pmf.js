@@ -89,11 +89,13 @@ export function normalizeObservationValues(record, definition) {
   return normalized;
 }
 
-function summarize(definition, observations, segmentCode) {
+function summarize(definition, observations, segmentCode, respondents = []) {
+  const respondentById = new Map(respondents.map((respondent) => [respondent.id, respondent]));
   const values = observations.filter((item) => (
     item.definitionId === definition.id
     && item.segmentCode === segmentCode
     && item.workflowStatus === "approved"
+    && (!item.respondentId || respondentById.get(item.respondentId)?.consentStatus === "granted")
   ));
   if (!values.length) return { display: "—", sampleSize: 0, value: null };
 
@@ -120,14 +122,14 @@ function summarize(definition, observations, segmentCode) {
   return { display: latest?.textValue || "—", sampleSize: values.length, value: latest?.textValue || null };
 }
 
-export function buildLayerMatrices({ segments = [], definitions = [], observations = [] } = {}) {
+export function buildLayerMatrices({ segments = [], definitions = [], observations = [], respondents = [] } = {}) {
   return Object.fromEntries(PMF_LAYERS.map((layer) => [
     layer.code,
     definitions.filter((definition) => definition.layer === layer.code).map((definition) => ({
       ...definition,
       values: Object.fromEntries(segments.map((segment) => [
         segment.code,
-        summarize(definition, observations, segment.code),
+         summarize(definition, observations, segment.code, respondents),
       ])),
     })),
   ]));
@@ -140,6 +142,7 @@ export function buildPmfRecommendations({
   respondents = [],
 } = {}) {
   const recommendations = [];
+  const respondentById = new Map(respondents.map((respondent) => [respondent.id, respondent]));
 
   if (reviewQueue.length) {
     recommendations.push({
@@ -165,7 +168,11 @@ export function buildPmfRecommendations({
   });
 
   PMF_LAYERS.forEach((layer) => {
-    const approved = evidence.filter((item) => item.pmfLayer === layer.code && item.workflowStatus === "approved");
+    const approved = evidence.filter((item) => (
+      item.pmfLayer === layer.code
+      && item.workflowStatus === "approved"
+      && (!item.respondentId || respondentById.get(item.respondentId)?.consentStatus === "granted")
+    ));
     const contrary = approved.filter((item) => item.stance === "contradicting").length;
     if (approved.length >= 2 && contrary / approved.length >= 0.5) {
       recommendations.push({

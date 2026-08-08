@@ -87,7 +87,13 @@ test("exports candidates as formula-safe CSV and JSON", () => {
 
   assert.match(exported.csv, /^\uFEFFexternalId,source,category,name,platforms,reach,tier,creatorType,contentFit,fitLevel,contactReadiness,contactChannel,contactDetail,sourceUrl,pmfCandidate,pmfRationale,priorityScore,priorityBand,ownerName,outreachStatus,interestLevel,preferredCollaboration,deckIntroduced,pmfAsked,firstOutreach,followUp1,followUp2,responseDate,nextStep,nextStepDue,notes,sourceUpdatedOn\r\n/);
   assert.match(exported.csv, /"'=unsafe"/);
+  assert.equal(parseCandidateImport(exported.csv).rows[0].name, "=unsafe");
   assert.deepEqual(JSON.parse(exported.json), candidates);
+});
+
+test("round-trips guarded formulas with leading whitespace", () => {
+  const exported = buildCandidateExport([{ name: "  +unsafe", category: "Other / Discovery" }]);
+  assert.equal(parseCandidateImport(exported.csv).rows[0].name, "+unsafe");
 });
 
 test("recommends transparent recovery actions from pipeline gaps", () => {

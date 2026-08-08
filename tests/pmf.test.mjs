@@ -68,6 +68,22 @@ test("builds every PMF layer matrix by segment from approved observations", () =
   assert.equal(matrices.H5[0].values.families.display, "3.0");
 });
 
+test("excludes non-consented respondent observations from PMF matrices", () => {
+  const matrices = buildLayerMatrices({
+    segments: [{ code: "families", name: "Families" }],
+    definitions: [{ id: "m1", code: "need_rate", layer: "H1", dimension: "Need", label: "Need rate", valueType: "boolean" }],
+    respondents: [{ id: "r1", consentStatus: "withdrawn" }, { id: "r2", consentStatus: "granted" }],
+    observations: [
+      { definitionId: "m1", segmentCode: "families", respondentId: "r1", booleanValue: true, workflowStatus: "approved" },
+      { definitionId: "m1", segmentCode: "families", respondentId: "r2", booleanValue: false, workflowStatus: "approved" },
+      { definitionId: "m1", segmentCode: "families", booleanValue: true, workflowStatus: "approved" },
+    ],
+  });
+
+  assert.equal(matrices.H1[0].values.families.display, "50%");
+  assert.equal(matrices.H1[0].values.families.sampleSize, 2);
+});
+
 test("requires provenance before a matrix observation can be submitted", () => {
   const result = validateResearchRecord("observation", {
     definitionId: "m1",
@@ -98,4 +114,17 @@ test("recommends action for review backlog, sample gaps, contradictions, and con
     ["review", "sample", "contradiction", "consent"],
   );
   assert.match(recommendations[1].action, /6/);
+});
+
+test("excludes withdrawn respondent evidence from contradiction recommendations", () => {
+  const recommendations = buildPmfRecommendations({
+    evidence: [
+      { pmfLayer: "H1", respondentId: "r1", stance: "contradicting", workflowStatus: "approved" },
+      { pmfLayer: "H1", respondentId: "r2", stance: "supporting", workflowStatus: "approved" },
+      { pmfLayer: "H1", respondentId: "r2", stance: "supporting", workflowStatus: "approved" },
+    ],
+    respondents: [{ id: "r1", consentStatus: "withdrawn" }, { id: "r2", consentStatus: "granted" }],
+  });
+
+  assert.equal(recommendations.some((item) => item.type === "contradiction"), false);
 });

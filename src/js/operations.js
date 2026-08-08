@@ -43,6 +43,11 @@ function normalizeHeader(value) {
   return String(value || "").trim().replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").toLowerCase().replaceAll("_", " ");
 }
 
+function removeFormulaGuard(value) {
+  const text = String(value ?? "").trim();
+  return /^'\s*[=+\-@]/.test(text) ? text.slice(1) : text;
+}
+
 function parseDelimited(text) {
   const source = String(text || "").replace(/^\uFEFF/, "");
   if (!source.trim()) return [];
@@ -63,11 +68,11 @@ function parseDelimited(text) {
         quoted = !quoted;
       }
     } else if (character === delimiter && !quoted) {
-      row.push(cell.trim());
+      row.push(removeFormulaGuard(cell));
       cell = "";
     } else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && source[index + 1] === "\n") index += 1;
-      row.push(cell.trim());
+      row.push(removeFormulaGuard(cell));
       if (row.some((value) => value !== "")) rows.push(row);
       row = [];
       cell = "";
@@ -75,7 +80,7 @@ function parseDelimited(text) {
       cell += character;
     }
   }
-  row.push(cell.trim());
+  row.push(removeFormulaGuard(cell));
   if (row.some((value) => value !== "")) rows.push(row);
   return rows;
 }
