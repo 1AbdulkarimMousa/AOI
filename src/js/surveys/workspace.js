@@ -190,6 +190,7 @@ export function createSurveyWorkspaceState() {
     reconcileSurveyResponseSelection() {
       const visibleIds = new Set(this.filteredSurveyResponses().map((response) => response.id));
       this.surveySelectedResponseIds = this.surveySelectedResponseIds.filter((responseId) => visibleIds.has(responseId));
+      if (this.surveySelectedResponse && !visibleIds.has(this.surveySelectedResponse?.id)) this.surveySelectedResponse = null;
     },
     selectedSurveyBlock() { return findBlock(this.surveyDefinition, this.surveySelectedBlockId); },
     selectedSurveyQuestion() {
