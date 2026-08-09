@@ -147,9 +147,12 @@ test("supports searchable and bulk response review queues", async () => {
   assert.match(template, /surveyReviewQuery/);
   assert.match(template, /surveyReviewStatus/);
   assert.match(template, /surveyReviewVersion/);
+  assert.match(template, /:value="surveyReviewQuery"/);
   assert.match(template, /bulkReviewSurveyResponses\('approve'\)/);
   assert.match(template, /bulkReviewSurveyResponses\('exclude'\)/);
   assert.match(template, /filteredSurveyResponses\(\)/);
+  assert.match(controller, /const failedIds = \[\]/);
+  assert.match(controller, /filteredSurveyResponses\(\)\.filter/);
   assert.match(styles, /\.survey-review-toolbar/);
   assert.match(styles, /\.survey-response-select/);
 });

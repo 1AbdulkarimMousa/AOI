@@ -603,7 +603,7 @@ export function createSurveyWorkspaceState() {
     },
     async bulkReviewSurveyResponses(action) {
       if (!this.access?.role || !["approve", "exclude"].includes(action) || this.surveyBulkReviewing) return;
-      const responses = (this.surveyWorkspace?.submissions || []).filter((response) => this.surveySelectedResponseIds.includes(response.id));
+      const responses = this.filteredSurveyResponses().filter((response) => this.surveySelectedResponseIds.includes(response.id));
       const eligible = responses.filter((response) => canReviewSurveyResponse(this.access.role, response.status, action));
       if (!eligible.length) {
         this.surveyNotice = { tone: "error", text: "No selected responses can use that review action." };
@@ -612,6 +612,7 @@ export function createSurveyWorkspaceState() {
       if (!window.confirm(`${action === "approve" ? "Approve" : "Exclude"} ${eligible.length} selected response(s)?`)) return;
       this.surveyBulkReviewing = true;
       let succeeded = 0;
+      const failedIds = [];
       const failures = [];
       try {
         for (const response of eligible) {
@@ -620,11 +621,13 @@ export function createSurveyWorkspaceState() {
             else await reviewSurveySubmission(response.id, action, this.surveyReviewNotes[response.id] || "");
             succeeded += 1;
           } catch (reason) {
+            failedIds.push(response.id);
             failures.push(`${response.id}: ${readableError(reason, "review failed")}`);
           }
         }
         if (!this.preview) this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
-        this.clearSurveyResponseSelection();
+        this.surveySelectedResponseIds = failedIds;
+        this.reconcileSurveyResponseSelection();
         this.surveyNotice = failures.length
           ? { tone: "warning", text: `${succeeded} response(s) updated; ${failures.length} failed. ${failures[0]}` }
           : { tone: "success", text: `${succeeded} response(s) ${action === "approve" ? "approved" : "excluded"}.` };
