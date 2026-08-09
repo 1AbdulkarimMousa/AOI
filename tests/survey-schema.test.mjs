@@ -104,6 +104,34 @@ test("hardens public sessions, revisions, invitations, and idempotency", async (
   assert.match(sql, /link\.link_status = 'active'/i);
 });
 
+test("replay RPC verifies original link and invitation state", async () => {
+  const sql = await currentSchema();
+
+  assert.match(
+    sql,
+    /create or replace function public\.rpc_aoi_public_survey_replay\([\s\S]*?p_submission_id uuid,[\s\S]*?p_resume_token text,[\s\S]*?p_idempotency_key text,[\s\S]*?p_token text,[\s\S]*?p_invitation_token text\)/i,
+  );
+  assert.match(sql, /and response\.submitted_at is not null/i);
+  assert.match(sql, /and \(link\.token_hash = digest\(p_token, 'sha256'\) or invitation\.token_hash = digest\(coalesce\(p_invitation_token, ''\), 'sha256'\)\)/i);
+  assert.match(sql, /and \(link\.link_mode <> 'invited' or invitation\.token_hash = digest\(coalesce\(p_invitation_token, ''\), 'sha256'\)\)/i);
+  assert.match(sql, /link\.opens_at is null or link\.opens_at <= now\(/i);
+  assert.match(sql, /link\.closes_at is null or link\.closes_at > now\(/i);
+  assert.match(sql, /return jsonb_build_object\('replayed', true, 'submissionId', v_submission\.id, 'status', 'submitted'/i);
+});
+
+test("maps invalid replay identity to SURVEY_RESPONSE_UNAVAILABLE", async () => {
+  const sql = await currentSchema();
+
+  assert.match(
+    sql,
+    /create or replace function public\.rpc_aoi_public_survey_replay\([\s\S]*?p_submission_id uuid,[\s\S]*?p_token text,[\s\S]*?p_invitation_token text\)[\s\S]*?if v_submission\.id is null then raise exception 'SURVEY_RESPONSE_UNAVAILABLE';/i,
+  );
+  assert.match(sql, /response\.resume_token_hash = digest\(p_resume_token, 'sha256'\)/i);
+  assert.match(sql, /response\.idempotency_key = p_idempotency_key/i);
+  assert.match(sql, /and \(link\.token_hash = digest\(p_token, 'sha256'\) or invitation\.token_hash = digest\(coalesce\(p_invitation_token, ''\), 'sha256'\)\)/i);
+  assert.match(sql, /response\.submitted_at is not null/i);
+});
+
 test("separates direct identifiers and excludes inactive answers from review payloads", async () => {
   const sql = await currentSchema();
 
