@@ -121,6 +121,11 @@ export function createSurveyWorkspaceState() {
     surveyAnalysisTab: "overview",
     surveyReviewNotes: {},
     surveySelectedResponse: null,
+    surveyReviewQuery: "",
+    surveyReviewStatus: "all",
+    surveyReviewVersion: "all",
+    surveySelectedResponseIds: [],
+    surveyBulkReviewing: false,
     surveyPromotionSegment: "",
     surveyImportNotice: null,
     surveyAutosaveTimer: null,
@@ -157,6 +162,34 @@ export function createSurveyWorkspaceState() {
         if (!query) return true;
         return [asset.title?.en, asset.title?.zh, asset.ownerName, ...(asset.tags || [])].some((value) => String(value || "").toLowerCase().includes(query));
       });
+    },
+    filteredSurveyResponses() {
+      const query = this.surveyReviewQuery.trim().toLowerCase();
+      return (this.surveyWorkspace?.submissions || []).filter((response) => {
+        if (this.surveyReviewStatus !== "all" && response.status !== this.surveyReviewStatus) return false;
+        if (this.surveyReviewVersion !== "all" && String(response.versionNumber || "") !== String(this.surveyReviewVersion)) return false;
+        if (!query) return true;
+        return [response.id, response.locale, response.status, response.versionNumber].some((value) => String(value || "").toLowerCase().includes(query));
+      });
+    },
+    surveyReviewStatusCounts() {
+      return (this.surveyWorkspace?.submissions || []).reduce((counts, response) => {
+        counts[response.status] = (counts[response.status] || 0) + 1;
+        return counts;
+      }, {});
+    },
+    toggleSurveyResponseSelection(responseId) {
+      const selected = new Set(this.surveySelectedResponseIds);
+      if (selected.has(responseId)) selected.delete(responseId); else selected.add(responseId);
+      this.surveySelectedResponseIds = [...selected];
+    },
+    selectVisibleSurveyResponses() {
+      this.surveySelectedResponseIds = [...new Set(this.filteredSurveyResponses().map((response) => response.id))];
+    },
+    clearSurveyResponseSelection() { this.surveySelectedResponseIds = []; },
+    reconcileSurveyResponseSelection() {
+      const visibleIds = new Set(this.filteredSurveyResponses().map((response) => response.id));
+      this.surveySelectedResponseIds = this.surveySelectedResponseIds.filter((responseId) => visibleIds.has(responseId));
     },
     selectedSurveyBlock() { return findBlock(this.surveyDefinition, this.surveySelectedBlockId); },
     selectedSurveyQuestion() {
@@ -218,6 +251,7 @@ export function createSurveyWorkspaceState() {
       const selectedId = this.surveySelectedResponse?.id;
       this.surveyWorkspace = workspace;
       this.surveySelectedResponse = workspace?.submissions?.find((response) => response.id === selectedId) || null;
+      this.reconcileSurveyResponseSelection();
       const invitedLinks = (workspace?.links || []).filter((link) => link.mode === "invited" && link.status === "active");
       if (!invitedLinks.some((link) => link.id === this.surveyInvitationLinkId)) this.surveyInvitationLinkId = invitedLinks[0]?.id || "";
     },
@@ -252,6 +286,7 @@ export function createSurveyWorkspaceState() {
       this.surveyCreatedLink = null;
       this.surveyNotice = null;
       this.surveySelectedResponse = null;
+      this.clearSurveyResponseSelection();
     },
 
     async createSurveyFromForm() {
@@ -565,6 +600,39 @@ export function createSurveyWorkspaceState() {
           this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
         }
       } catch (reason) { this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to review the response.") }; }
+    },
+    async bulkReviewSurveyResponses(action) {
+      if (!this.access?.role || !["approve", "exclude"].includes(action) || this.surveyBulkReviewing) return;
+      const responses = (this.surveyWorkspace?.submissions || []).filter((response) => this.surveySelectedResponseIds.includes(response.id));
+      const eligible = responses.filter((response) => canReviewSurveyResponse(this.access.role, response.status, action));
+      if (!eligible.length) {
+        this.surveyNotice = { tone: "error", text: "No selected responses can use that review action." };
+        return;
+      }
+      if (!window.confirm(`${action === "approve" ? "Approve" : "Exclude"} ${eligible.length} selected response(s)?`)) return;
+      this.surveyBulkReviewing = true;
+      let succeeded = 0;
+      const failures = [];
+      try {
+        for (const response of eligible) {
+          try {
+            if (this.preview) response.status = action === "approve" ? "approved" : "excluded";
+            else await reviewSurveySubmission(response.id, action, this.surveyReviewNotes[response.id] || "");
+            succeeded += 1;
+          } catch (reason) {
+            failures.push(`${response.id}: ${readableError(reason, "review failed")}`);
+          }
+        }
+        if (!this.preview) this.applySurveyWorkspace(await loadSurveyWorkspace(this.surveyWorkspace.asset.id));
+        this.clearSurveyResponseSelection();
+        this.surveyNotice = failures.length
+          ? { tone: "warning", text: `${succeeded} response(s) updated; ${failures.length} failed. ${failures[0]}` }
+          : { tone: "success", text: `${succeeded} response(s) ${action === "approve" ? "approved" : "excluded"}.` };
+      } catch (reason) {
+        this.surveyNotice = { tone: "error", text: readableError(reason, "Unable to refresh the response queue.") };
+      } finally {
+        this.surveyBulkReviewing = false;
+      }
     },
     async promoteMappedSurveyAnswers(response) {
       const mapped = this.responseSurveyQuestions(response).filter((question) => question.pmfMapping?.metricCode && Object.hasOwn(response.answers || {}, question.id));

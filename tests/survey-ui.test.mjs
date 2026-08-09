@@ -134,6 +134,26 @@ test("guards dirty survey navigation and keeps response selection coherent", asy
   assert.match(controller, /surveyAnalysisRequestSequence/);
 });
 
+test("supports searchable and bulk response review queues", async () => {
+  const [controller, template, styles] = await Promise.all([
+    readFile(new URL("src/js/surveys/workspace.js", root), "utf8"),
+    readFile(new URL("src/js/surveys/workspace-template.js", root), "utf8"),
+    readFile(new URL("src/css/surveys.css", root), "utf8"),
+  ]);
+
+  for (const helper of ["filteredSurveyResponses", "surveyReviewStatusCounts", "toggleSurveyResponseSelection", "selectVisibleSurveyResponses", "bulkReviewSurveyResponses"]) {
+    assert.match(controller, new RegExp(`${helper}\\(`));
+  }
+  assert.match(template, /surveyReviewQuery/);
+  assert.match(template, /surveyReviewStatus/);
+  assert.match(template, /surveyReviewVersion/);
+  assert.match(template, /bulkReviewSurveyResponses\('approve'\)/);
+  assert.match(template, /bulkReviewSurveyResponses\('exclude'\)/);
+  assert.match(template, /filteredSurveyResponses\(\)/);
+  assert.match(styles, /\.survey-review-toolbar/);
+  assert.match(styles, /\.survey-response-select/);
+});
+
 test("honors runner presentation settings and recovers corrupt local resumes", async () => {
   const [runner, template] = await Promise.all([
     readFile(new URL("src/js/surveys/runner.js", root), "utf8"),
