@@ -372,7 +372,12 @@ export function createSurveyWorkspaceState() {
       this.markSurveyDirty();
     },
     setSurveyVisibility(question, sourceId, value) {
-      question.visibility = sourceId ? { all: [{ questionId: sourceId, operator: "equals", value }] } : null;
+      question.visibility = sourceId ? { all: [{ questionId: sourceId, operator: question.visibility?.all?.[0]?.operator || "equals", value }] } : null;
+      this.markSurveyDirty();
+    },
+    setSurveyVisibilityOperator(question, operator) {
+      if (!question.visibility?.all?.[0]) return;
+      question.visibility.all[0].operator = operator;
       this.markSurveyDirty();
     },
     normalizeSelectedSurveyQuestion() {

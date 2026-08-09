@@ -68,6 +68,8 @@ test("renders questionnaire content, attached Other fields, scale labels, and re
   assert.match(runnerTemplate, /scaleLabels/);
   assert.match(runnerTemplate, /definition\.consent/);
   assert.match(workspaceTemplate, /Direct identifier/);
+  assert.match(workspaceTemplate, /Does not equal/);
+  assert.match(await readFile(new URL("src/js/surveys/workspace.js", root), "utf8"), /setSurveyVisibilityOperator/);
   assert.match(workspaceTemplate, /surveySelectedResponse\?\.identifiers/);
   assert.match(await readFile(new URL("src/js/surveys/workspace.js", root), "utf8"), /privacy\?\.classification !== "direct_identifier"/);
   assert.match(api, /surveyError\.fields/);
