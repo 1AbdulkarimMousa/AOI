@@ -128,3 +128,7 @@ test("shared foundations normalize routes and protect async dialog state", () =>
   assert.match(app, /registerDialogManager\(\)/);
   assert.match(aoi, /html\.dialog-open[\s\S]*overflow:\s*hidden/);
 });
+
+test("dialog visibility ignores dialogs inside hidden wrappers", () => {
+  assert.match(dialogManager, /getClientRects\(\)\.length/);
+});

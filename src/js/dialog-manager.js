@@ -3,7 +3,7 @@ const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled
 function isVisible(element) {
   if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
   const style = window.getComputedStyle(element);
-  return style.display !== "none" && style.visibility !== "hidden";
+  return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
 }
 
 function focusableElements(dialog) {
