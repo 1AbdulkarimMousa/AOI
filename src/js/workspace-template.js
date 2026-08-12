@@ -5,6 +5,7 @@ import { surveyWorkspaceTemplate } from "./surveys/workspace-template.js";
 import { chatTemplate } from "./chat-template.js";
 import { profileTemplate } from "./profile-template.js";
 import { inboxTemplate } from "./inbox-template.js";
+import { projectsTemplate } from "./projects-template.js";
 
 const taskDrawerTemplate = String.raw`
 <div x-show="selectedTask" class="modal-backdrop drawer-backdrop" @mousedown.self="closeTask()">
@@ -24,7 +25,7 @@ const taskDrawerTemplate = String.raw`
 </div>`;
 
 export const workspaceTemplate = String.raw`
-<div x-data="workspacePage" x-init="init()" x-cloak @keydown.window.escape="commandOpen=false; selectedTask=null; notificationOpen=false; accountMenuOpen=false; chatDetailsOpen=false; mobileNav=false; profileOpen && closeProfileEditor(); selectedCollectRecord && closeCollectRecord(); selectedDailyEod && closeDailyEodRecord()" @keydown.window.tab="selectedDailyEod && trapDailyEodFocus($event)" @keydown.window.meta.k.prevent="commandOpen=true" @keydown.window.ctrl.k.prevent="commandOpen=true">
+<div x-data="workspacePage" x-init="init()" x-cloak @keydown.window.escape="commandOpen=false; selectedTask=null; notificationOpen=false; accountMenuOpen=false; chatDetailsOpen=false; mobileNav=false; profileOpen && closeProfileEditor(); selectedProjectRecord && requestCloseProjectRecord(); projectAdminMode && closeProjectAdmin(); selectedCollectRecord && closeCollectRecord(); selectedDailyEod && closeDailyEodRecord()" @keydown.window.tab="selectedDailyEod && trapDailyEodFocus($event)" @keydown.window.meta.k.prevent="commandOpen=true" @keydown.window.ctrl.k.prevent="commandOpen=true">
   <template x-if="!ready">
     <main class="access-gate"><section><div class="brand-mark">A</div><h1>Ambiloop Ops</h1><p>Verifying your AOI workspace access…</p><span class="spin">◌</span></section></main>
   </template>
@@ -42,7 +43,7 @@ export const workspaceTemplate = String.raw`
           <button class="sidebar-toggle" @click="sidebarCollapsed=!sidebarCollapsed" :aria-label="sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'" x-text="sidebarCollapsed ? '›' : '‹'"></button>
           <button class="mobile-close" @click="mobileNav=false" aria-label="Close">×</button>
         </div>
-        <div class="project-switcher"><div class="project-badge">A</div><div><small>Project</small><strong x-text="data.project.name"></strong></div><span>⌄</span></div>
+        <label class="project-switcher"><div class="project-badge">A</div><div><small>Active project</small><select aria-label="Active project" :value="projectSwitcherValue" @change="onProjectSwitcherChange($event)"><template x-for="project in projectOptions" :key="project.id"><option :value="project.id" x-text="project.name+' · '+projectStatusLabel(project.health||project.status)"></option></template></select></div><span aria-hidden="true">⌄</span></label>
         <nav class="primary-nav" aria-label="Workspace">
           <span class="nav-label">Workspace</span>
           <template x-for="item in navigation" :key="item.id">
@@ -82,6 +83,8 @@ export const workspaceTemplate = String.raw`
 
           <nav x-show="view==='today'" class="crm-local-tabs workspace-local-tabs" aria-label="Today sections" role="tablist"><button type="button" role="tab" :aria-selected="todayTab==='briefing'" :class="todayTab==='briefing'&&'active'" @click="setTodayTab('briefing')">Briefing</button><button type="button" role="tab" :aria-selected="todayTab==='tasks'" :class="todayTab==='tasks'&&'active'" @click="setTodayTab('tasks')">Tasks</button><button type="button" role="tab" :aria-selected="todayTab==='relationships'" :class="todayTab==='relationships'&&'active'" @click="setTodayTab('relationships')">Relationships</button><button type="button" role="tab" :aria-selected="todayTab==='momentum'" :class="todayTab==='momentum'&&'active'" @click="setTodayTab('momentum')">Momentum</button></nav>
           <nav x-show="view==='research'" class="crm-local-tabs workspace-local-tabs" aria-label="Research sections" role="tablist"><button type="button" role="tab" :aria-selected="researchTab==='collect'" :class="researchTab==='collect'&&'active'" @click="setResearchTab('collect')">Collect</button><button type="button" role="tab" :aria-selected="researchTab==='surveys'" :class="researchTab==='surveys'&&'active'" @click="setResearchTab('surveys')">Surveys</button><button type="button" role="tab" :aria-selected="researchTab==='analyze'" :class="researchTab==='analyze'&&'active'" @click="setResearchTab('analyze')">Analyze</button><button type="button" role="tab" :aria-selected="researchTab==='reports'" :class="researchTab==='reports'&&'active'" @click="setResearchTab('reports')">Reports</button></nav>
+
+          ${projectsTemplate}
 
           <div x-show="view==='today' && todayTab==='briefing'">
             ${inboxTemplate}

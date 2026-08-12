@@ -55,3 +55,16 @@ export function inboxCount(inbox, bucket) {
   }[bucket];
   return Number(inbox?.counts?.[key]) || 0;
 }
+
+export function projectSourceLabel(sourceType) {
+  return {
+    project_milestone: "Project milestone",
+    project_blocker: "Project blocker",
+    project_risk: "Project risk",
+    project_decision: "Project decision",
+    milestone: "Project milestone",
+    blocker: "Project blocker",
+    risk: "Project risk",
+    decision: "Project decision",
+  }[sourceType] || String(sourceType || "Source record").replaceAll("_", " ");
+}

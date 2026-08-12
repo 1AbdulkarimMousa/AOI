@@ -12,6 +12,10 @@ const defaults = {
   relationshipsTab: "contacts",
   outreachSection: "pipeline",
   researchTab: "collect",
+  projectTab: "overview",
+  projectId: null,
+  projectRecordType: null,
+  projectRecordId: null,
 };
 
 test("resolves canonical consolidated workspace tabs", () => {
@@ -35,6 +39,12 @@ test("resolves canonical consolidated workspace tabs", () => {
   for (const view of ["eod", "chat"]) {
     assert.deepEqual(resolveWorkspaceRoute({ view }), { view, ...defaults, normalize: false });
   }
+  assert.deepEqual(resolveWorkspaceRoute({ view: "projects", tab: "overview", project: "project-1" }), {
+    view: "projects",
+    ...defaults,
+    projectId: "project-1",
+    normalize: false,
+  });
 });
 
 test("normalizes every legacy workspace destination", () => {
@@ -84,7 +94,7 @@ test("rejects tabs and sections outside their owning workspace", () => {
   });
 });
 
-test("exposes five primary destinations with local workflow tabs", async () => {
+test("exposes six primary destinations with local workflow tabs", async () => {
   const [controller, workspaceTemplate, crmTemplate, pmfTemplate, surveyTemplate] = await Promise.all([
     readFile(new URL("src/js/workspace.js", root), "utf8"),
     readFile(new URL("src/js/workspace-template.js", root), "utf8"),
@@ -94,7 +104,7 @@ test("exposes five primary destinations with local workflow tabs", async () => {
   ]);
   const templates = workspaceTemplate + crmTemplate + pmfTemplate + surveyTemplate;
 
-  assert.match(controller, /navigation:\s*\[\s*\{ id: "today", label: "Today" \},\s*\{ id: "relationships", label: "Relationships" \},\s*\{ id: "research", label: "Research" \},\s*\{ id: "eod", label: "End-of-Day Brief" \},\s*\{ id: "chat", label: "Chat" \},?\s*\]/);
+  assert.match(controller, /navigation:\s*\[\s*\{ id: "today", label: "Today" \},\s*\{ id: "relationships", label: "Relationships" \},\s*\{ id: "research", label: "Research" \},\s*\{ id: "projects", label: "Projects" \},\s*\{ id: "eod", label: "End-of-Day Brief" \},\s*\{ id: "chat", label: "Chat" \},?\s*\]/);
   assert.match(templates, /aria-label="Today sections"/);
   assert.match(templates, /aria-label="Relationship sections"/);
   assert.match(templates, /aria-label="Research sections"/);

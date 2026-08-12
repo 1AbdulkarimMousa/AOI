@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { createInboxState, inboxBucketLabel, inboxRoleCopy, unreadInboxCount } from "../src/js/inbox.js";
+import { createInboxState, inboxBucketLabel, inboxRoleCopy, projectSourceLabel, unreadInboxCount } from "../src/js/inbox.js";
 
 const root = new URL("../", import.meta.url);
 
@@ -19,6 +19,10 @@ test("creates a durable role-adaptive inbox state", () => {
   assert.match(inboxRoleCopy({ role: "admin", isOwner: false }).heading, /review/i);
   assert.match(inboxRoleCopy({ role: "intern" }).heading, /assigned/i);
   assert.equal(unreadInboxCount({ items: [{ readAt: null }, { readAt: "2026-08-12" }] }), 1);
+  assert.equal(projectSourceLabel("project_milestone"), "Project milestone");
+  assert.equal(projectSourceLabel("project_decision"), "Project decision");
+  assert.equal(projectSourceLabel("milestone"), "Project milestone");
+  assert.equal(projectSourceLabel("decision"), "Project decision");
 });
 
 test("wires the persisted inbox into Today and replaces fake notifications", async () => {

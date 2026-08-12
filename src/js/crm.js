@@ -5,7 +5,9 @@ const OUTREACH_SECTIONS = new Set(["pipeline", "evidence", "imports"]);
 const TODAY_TABS = new Set(["briefing", "tasks", "relationships", "momentum"]);
 const RELATIONSHIP_TABS = new Set(["contacts", "recruitment", "outreach"]);
 const RESEARCH_TABS = new Set(["collect", "surveys", "analyze", "reports"]);
-const PRIMARY_VIEWS = new Set(["today", "relationships", "research", "eod", "chat"]);
+const PROJECT_TABS = new Set(["overview", "milestones", "blockers", "risks", "decisions"]);
+const PROJECT_RECORD_PARAMS = { milestones: "milestone", blockers: "blocker", risks: "risk", decisions: "decision" };
+const PRIMARY_VIEWS = new Set(["today", "relationships", "research", "projects", "eod", "chat"]);
 const LEGACY_TODAY_VIEWS = { overview: "briefing", work: "tasks", team: "momentum" };
 const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", imports: "imports" };
 const LEGACY_RESEARCH_VIEWS = { collect: "collect", surveys: "surveys", analyze: "analyze", reports: "reports", pmf: "analyze" };
@@ -13,12 +15,16 @@ const LEGACY_WORKSPACE_VIEWS = { crm: "relationships", "daily-eod": "eod", "end-
 
 export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
 
-export function resolveWorkspaceRoute({ view, tab, section, defaultView = "today", defaultTodayTab = "briefing" } = {}) {
+export function resolveWorkspaceRoute({ view, tab, section, project, milestone, blocker, risk, decision, defaultView = "today", defaultTodayTab = "briefing" } = {}) {
   const defaults = {
     todayTab: TODAY_TABS.has(defaultTodayTab) ? defaultTodayTab : "briefing",
     relationshipsTab: "contacts",
     outreachSection: "pipeline",
     researchTab: "collect",
+    projectTab: "overview",
+    projectId: null,
+    projectRecordType: null,
+    projectRecordId: null,
   };
 
   if (LEGACY_TODAY_VIEWS[view]) {
@@ -63,6 +69,24 @@ export function resolveWorkspaceRoute({ view, tab, section, defaultView = "today
   if (resolvedView === "research") {
     const researchTab = RESEARCH_TABS.has(tab) ? tab : defaults.researchTab;
     return { view: resolvedView, ...defaults, researchTab, normalize: normalize || tab !== researchTab || Boolean(section) };
+  }
+
+  if (resolvedView === "projects") {
+    const projectTab = PROJECT_TABS.has(tab) ? tab : defaults.projectTab;
+    const projectRecordType = PROJECT_RECORD_PARAMS[projectTab] || null;
+    const values = { milestone, blocker, risk, decision };
+    const projectRecordId = projectRecordType ? values[projectRecordType] || null : null;
+    const recordCount = Object.values(values).filter(Boolean).length;
+    const invalidRecords = recordCount > (projectRecordId ? 1 : 0);
+    return {
+      view: resolvedView,
+      ...defaults,
+      projectTab,
+      projectId: project || null,
+      projectRecordType,
+      projectRecordId: invalidRecords ? null : projectRecordId,
+      normalize: normalize || tab !== projectTab || invalidRecords || (!projectRecordType && recordCount > 0) || Boolean(section),
+    };
   }
 
   return { view: resolvedView, ...defaults, normalize: normalize || Boolean(tab || section) };

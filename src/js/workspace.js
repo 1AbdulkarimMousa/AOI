@@ -1,5 +1,6 @@
 import {
   addEvidence,
+  adminSaveProject,
   adminUpdateDailyEodBrief,
   appendConsentVersion,
   createGateSnapshot,
@@ -14,6 +15,9 @@ import {
   loadDashboard,
   loadInbox,
   loadCollectRecordDetail,
+  loadProjectContext,
+  loadProjectRecordDetail,
+  loadProjectSnapshot,
   loadTaskDetail,
   markInboxRead,
   logOutreach,
@@ -21,9 +25,14 @@ import {
   reviewResearchRecord as persistResearchReview,
   saveDailyEodBrief,
   saveResearchRecord as persistResearchRecord,
+  saveProjectRecord as persistProjectRecord,
+  setProjectMember as persistProjectMember,
+  selectProjectContext,
   snoozePasswordReminder,
   updateTaskCheckpoint,
   updateResearchRecord as persistResearchUpdate,
+  transitionProjectRecord as persistProjectTransition,
+  transitionProject as persistProjectLifecycle,
   uploadResearchAttachment,
   upsertCandidate,
   upsertCrmContact,
@@ -42,7 +51,8 @@ import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js"
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 import { createChatState } from "./chat.js";
 import { createProfileState } from "./profile.js";
-import { createInboxState, inboxBucketLabel, inboxCount as countInboxBucket, inboxRoleCopy, unreadInboxCount } from "./inbox.js";
+import { createInboxState, inboxBucketLabel, inboxCount as countInboxBucket, inboxRoleCopy, projectSourceLabel, unreadInboxCount } from "./inbox.js";
+import { activeProjectAccess, createProjectRecordDraft, ensureProjectMutationNonce, filterProjectRecords, hydrateProjectRecordDraft as buildProjectRecordDraft, isProjectRecordEditable, mergeProjectSelection, normalizeProjectDetail, normalizeProjectSnapshot, projectRecordActions, projectTabNavigation, riskScorePresentation, scopePreviewProject, serializeProjectRecord, sortProjectRecords } from "./projects.js";
 
 function today() {
   return localDateValue();
@@ -121,6 +131,33 @@ export function registerWorkspace(Alpine) {
     relationshipsTab: "contacts",
     outreachSection: "pipeline",
     researchTab: "collect",
+    projectTab: "overview",
+    projectContext: null,
+    projectSnapshot: null,
+    projectLoading: false,
+    projectError: "",
+    projectReconciliationWarning: "",
+    projectStale: false,
+    projectConflictDraft: null,
+    projectDirty: false,
+    projectSaving: false,
+    projectNotice: null,
+    projectUnavailable: null,
+    projectDetailLoading: false,
+    projectMutationNonces: {},
+    projectAdminMode: null,
+    projectAdminDraft: createProjectRecordDraft("project"),
+    projectMemberDraft: { userId: "", active: true, responsibility: "" },
+    projectLifecycleNote: "",
+    projectSupersedeDecisionId: "",
+    projectFilters: { query: "", status: "all", ownerId: "", sort: "dueDate" },
+    selectedProjectRecord: null,
+    projectRecordType: null,
+    projectRecordDraft: createProjectRecordDraft("milestone"),
+    projectEditorMode: null,
+    projectTransitionNote: "",
+    projectReturnFocus: null,
+    projectDetailRequest: 0,
     recruitmentMounted: false,
     mobileNav: false,
     sidebarCollapsed: false,
@@ -229,6 +266,7 @@ export function registerWorkspace(Alpine) {
         { id: "today", label: "Today" },
         { id: "relationships", label: "Relationships" },
         { id: "research", label: "Research" },
+        { id: "projects", label: "Projects" },
         { id: "eod", label: "End-of-Day Brief" },
         { id: "chat", label: "Chat" },
       ],
@@ -243,7 +281,7 @@ export function registerWorkspace(Alpine) {
        const requestedRecordType = searchParams.get("type");
        const requestedRecordId = searchParams.get("id");
        const requestedTab = searchParams.get("tab");
-       const route = resolveWorkspaceRoute({ view: requestedView, tab: requestedTab, section: searchParams.get("section"), defaultView: "today", defaultTodayTab: this.todayTab });
+       const route = resolveWorkspaceRoute({ view: requestedView, tab: requestedTab, section: searchParams.get("section"), project: searchParams.get("project"), milestone: searchParams.get("milestone"), blocker: searchParams.get("blocker"), risk: searchParams.get("risk"), decision: searchParams.get("decision"), defaultView: "today", defaultTodayTab: this.todayTab });
        this.applyWorkspaceRoute(route);
          if (requestedContactId) {
            this.view = "relationships";
@@ -264,13 +302,25 @@ export function registerWorkspace(Alpine) {
           organizationName: fallbackDashboard.organization.name,
           locale: this.locale,
         };
-        this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
-        this.hydrateDailyEod(this.data.dailyEod);
+         this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
+         const previewProject = scopePreviewProject(this.expectedRole);
+         this.projectContext = previewProject.context;
+         this.projectSnapshot = normalizeProjectSnapshot(previewProject.snapshot);
+         this.access.projectId = previewProject.context.selectedProjectId;
+         this.access.organizationId = previewProject.context.selectedOrganizationId;
+         this.preview = true;
+         this.inbox = createInboxState({
+           projectId: previewProject.context.selectedProjectId,
+           counts: { needsAction: 1 },
+           items: [{ id: "preview-project-inbox-1", projectId: previewProject.context.selectedProjectId, sourceType: "project_decision", sourceId: "preview-decision-1", summary: "Review the pilot context decision", reason: "A project decision is ready for governance review.", priority: "high", readAt: null, resolvedAt: null }],
+           generatedAt: previewProject.snapshot.generatedAt,
+         });
+         this.hydrateDailyEod(this.data.dailyEod);
          this.openRequestedCrmContact(requestedContactId);
          if (requestedTaskId) this.openRequestedTask(requestedTaskId);
          if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
-        this.preview = true;
-        this.ready = true;
+         if (route.projectRecordType && route.projectRecordId) this.openRequestedProjectRecord(route.projectRecordType, route.projectRecordId);
+         this.ready = true;
         this.loading = false;
         if (this.isSurveyWorkspaceActive) await this.openSurveyWorkspace();
         if (this.view === "eod") await this.searchDailyEodReports(1);
@@ -299,12 +349,14 @@ export function registerWorkspace(Alpine) {
         this.setupResearchDraftAutosave();
         this.locale = localStorage.getItem("aoi-locale") || access.locale || "en";
         document.documentElement.lang = this.locale;
-        this.ready = true;
-        await this.refreshDashboard();
+         this.ready = true;
+         await this.refreshProjectContext(route.projectId);
+         await this.refreshDashboard();
         if (this.isSurveyWorkspaceActive) await this.openSurveyWorkspace();
         this.openRequestedCrmContact(requestedContactId);
         if (requestedTaskId) this.openRequestedTask(requestedTaskId);
-        if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
+         if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
+         if (route.projectRecordType && route.projectRecordId) this.openRequestedProjectRecord(route.projectRecordType, route.projectRecordId);
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
         if (this.view === "eod") await this.searchDailyEodReports(1);
@@ -319,6 +371,7 @@ export function registerWorkspace(Alpine) {
 
     destroy() {
       this.dashboardRefreshSequence += 1;
+      this.projectDetailRequest += 1;
       window.clearTimeout(this.dailyEodRefreshTimer);
       if (this.dailyEodVisibilityHandler) document.removeEventListener("visibilitychange", this.dailyEodVisibilityHandler);
       if (this.dailyEodFocusHandler) window.removeEventListener("focus", this.dailyEodFocusHandler);
@@ -394,6 +447,27 @@ export function registerWorkspace(Alpine) {
       const value = this.query.trim().toLowerCase();
       return this.data.tasks.filter((task) => !value || task.title.toLowerCase().includes(value)).slice(0, 5);
     },
+    get activeProject() { return this.projectSnapshot?.project || this.projectContext?.projects?.find((project) => project.id === this.projectContext?.selectedProjectId) || this.data.project; },
+    get activeProjectAccess() { return activeProjectAccess(this.projectContext || {}); },
+    get activeProjectRole() { return this.activeProjectAccess.role; },
+    get activeProjectIsOwner() { return this.activeProjectAccess.isOwner; },
+    get projectSwitcherValue() { return this.projectContext?.selectedProjectId || this.activeProject?.id || ""; },
+    get projectOptions() { return this.projectContext?.projects || this.projectContext?.organizations?.flatMap((organization) => organization.projects || []) || []; },
+    get projectRegisterTitle() { return { milestones: "Milestone register", blockers: "Blocker register", risks: "Risk register", decisions: "Decision register" }[this.projectTab] || "Project register"; },
+    get currentProjectRecordType() { return this.projectTypeForTab(this.projectTab); },
+    get currentProjectRecords() { return this.projectSnapshot?.[this.projectTab] || []; },
+    get filteredProjectRecords() {
+      return sortProjectRecords(filterProjectRecords(this.currentProjectRecords, { ...this.projectFilters, today: today() }), this.projectFilters.sort);
+    },
+    get canEditSelectedProjectRecord() {
+      return isProjectRecordEditable(this.projectRecordType, this.selectedProjectRecord?.status || this.projectRecordDraft.status, this.activeProjectRole, this.selectedProjectRecord?.ownerId, this.access?.userId, this.projectEditorMode === "new");
+    },
+    get selectedProjectActions() { return projectRecordActions(this.projectRecordType, this.selectedProjectRecord?.status, this.activeProjectRole); },
+    projectSourceLabel,
+    riskPresentation: riskScorePresentation,
+    projectTypeForTab(tab) { return { milestones: "milestone", blockers: "blocker", risks: "risk", decisions: "decision" }[tab] || "project"; },
+    projectStatusLabel(value) { return String(value || "Unknown").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase()); },
+    projectActionLabel(value) { return this.projectStatusLabel(value); },
     get candidates() { return this.data.candidates || []; },
     get crmContacts() { return this.data.crmContacts || []; },
     get crmQueue() { return buildTodayQueue(this.crmContacts, today()); },
@@ -498,6 +572,7 @@ export function registerWorkspace(Alpine) {
       if (this.view === "today") return { briefing: "Briefing", tasks: "Tasks", relationships: "Relationships", momentum: "Momentum" }[this.todayTab];
       if (this.view === "relationships") return { contacts: "Contacts", recruitment: "Recruitment", outreach: "Outreach" }[this.relationshipsTab];
       if (this.view === "research") return { collect: "Collect", surveys: "Surveys", analyze: "Analyze", reports: "Reports" }[this.researchTab];
+      if (this.view === "projects") return { overview: "Overview", milestones: "Milestones", blockers: "Blockers & Risks", risks: "Blockers & Risks", decisions: "Decisions" }[this.projectTab];
       return this.navigation.find((item) => item.id === this.view)?.label || "Today";
     },
 
@@ -507,19 +582,23 @@ export function registerWorkspace(Alpine) {
       this.relationshipsTab = route.relationshipsTab;
       this.outreachSection = route.outreachSection;
       this.researchTab = route.researchTab;
+      this.projectTab = route.projectTab;
       if (route.relationshipsTab === "recruitment") this.recruitmentMounted = true;
     },
 
     async setView(view) {
-      const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : null;
-      const route = resolveWorkspaceRoute({ view, tab, section: view === "relationships" ? this.outreachSection : null, defaultTodayTab: this.todayTab });
+      const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : view === "projects" ? this.projectTab : null;
+      const route = resolveWorkspaceRoute({ view, tab, section: view === "relationships" ? this.outreachSection : null, project: view === "projects" ? this.projectSwitcherValue : null, defaultTodayTab: this.todayTab });
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, route.view === "research" && route.researchTab === "surveys", this.surveyDirty)
         && !await this.confirmSurveyNavigation()) return false;
+      if (this.view === "projects" && route.view !== "projects" && !await this.confirmProjectNavigation()) return false;
+      if (this.view === "projects" && route.view !== "projects") this.closeProjectRecord(false);
       this.applyWorkspaceRoute(route);
       this.replaceWorkspaceLocation();
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
       if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
       if (this.view === "chat") this.initializeChat().then(() => this.markSelectedChatRead());
+      if (this.view === "projects" && !this.projectSnapshot) this.refreshProjectSnapshot();
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -551,6 +630,20 @@ export function registerWorkspace(Alpine) {
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab: "outreach", section }));
       this.replaceWorkspaceLocation();
     },
+    async setProjectTab(tab) {
+      if (!await this.confirmProjectNavigation()) return false;
+      this.closeProjectRecord(false);
+      this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "projects", tab, project: this.projectSwitcherValue }));
+      this.replaceWorkspaceLocation();
+      return true;
+    },
+    async onProjectTabKeydown(event, currentTab) {
+      const tab = projectTabNavigation(["overview", "milestones", "blockers", "decisions"], currentTab, event.key);
+      if (!tab) return;
+      event.preventDefault();
+      if (!await this.setProjectTab(tab)) return;
+      this.$nextTick(() => document.getElementById(`project-tab-${tab}`)?.focus?.());
+    },
     replaceWorkspaceLocation(replace = false, contactId = "") {
       this.writeWorkspaceLocation(replace, contactId);
     },
@@ -565,6 +658,12 @@ export function registerWorkspace(Alpine) {
         if (this.relationshipsTab === "outreach") url.searchParams.set("section", this.outreachSection);
       }
       if (this.view === "research") url.searchParams.set("tab", this.researchTab);
+      for (const param of ["project", "milestone", "blocker", "risk", "decision"]) url.searchParams.delete(param);
+      if (this.view === "projects") {
+        url.searchParams.set("tab", this.projectTab);
+        if (this.projectSwitcherValue) url.searchParams.set("project", this.projectSwitcherValue);
+        if (this.selectedProjectRecord?.id && this.projectRecordType) url.searchParams.set(this.projectRecordType, this.selectedProjectRecord.id);
+      }
       url.searchParams.delete("contact");
       if (this.view === "relationships" && this.relationshipsTab === "contacts" && contactId) url.searchParams.set("contact", contactId);
       if (replace) window.history.replaceState({}, "", url);
@@ -576,7 +675,11 @@ export function registerWorkspace(Alpine) {
     },
     async syncRouteFromLocation() {
       const params = new URLSearchParams(location.search);
-      const route = resolveWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), defaultView: "today", defaultTodayTab: this.expectedRole === "intern" ? "relationships" : "briefing" });
+      const route = resolveWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), project: params.get("project"), milestone: params.get("milestone"), blocker: params.get("blocker"), risk: params.get("risk"), decision: params.get("decision"), defaultView: "today", defaultTodayTab: this.expectedRole === "intern" ? "relationships" : "briefing" });
+      if (!await this.confirmProjectNavigation()) {
+        this.replaceWorkspaceLocation(true);
+        return false;
+      }
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, route.view === "research" && route.researchTab === "surveys", this.surveyDirty)
         && !await this.confirmSurveyNavigation()) {
         this.replaceWorkspaceLocation(true);
@@ -585,6 +688,9 @@ export function registerWorkspace(Alpine) {
       this.applyWorkspaceRoute(route);
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports(1);
       if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
+      if (route.projectId && route.projectId !== this.projectSwitcherValue) await this.changeProject(route.projectId, { updateHistory: false });
+      if (route.projectRecordType && route.projectRecordId) this.openRequestedProjectRecord(route.projectRecordType, route.projectRecordId);
+      else if (this.selectedProjectRecord) this.closeProjectRecord(false);
       const contactId = params.get("contact");
       if (contactId && this.view === "relationships" && this.relationshipsTab === "contacts") {
         const contact = this.crmContacts.find((item) => item.id === contactId);
@@ -607,14 +713,16 @@ export function registerWorkspace(Alpine) {
       document.documentElement.lang = this.locale;
     },
     async refreshInbox(bucket = this.inbox.bucket) {
-      if (this.preview) return;
+      if (this.preview) return true;
       this.inboxLoading = true;
       this.inboxNotice = null;
       try {
         this.inbox = createInboxState(await loadInbox(bucket, this.access?.projectId || null));
         if (this.selectedInboxItem) this.selectedInboxItem = this.inbox.items.find((item) => item.id === this.selectedInboxItem.id) || null;
+        return true;
       } catch (reason) {
         this.inboxNotice = { tone: "error", text: readableError(reason, "The work inbox is temporarily unavailable.") };
+        return false;
       } finally {
         this.inboxLoading = false;
       }
@@ -642,17 +750,357 @@ export function registerWorkspace(Alpine) {
       const focus = this.inboxReturnFocus;
       this.$nextTick(() => focus?.focus?.());
     },
-    openInboxSource(item) {
+    async openInboxSource(item) {
       if (!item) return;
+      const projectSourceTypes = new Set(["milestone", "blocker", "risk", "decision", "project_milestone", "project_blocker", "project_risk", "project_decision"]);
       if (item.sourceType === "task") {
         const task = this.data.tasks.find((entry) => entry.id === item.sourceId) || { id: item.sourceId, title: item.summary, status: "assigned" };
         this.selectTask(task);
+      } else if (projectSourceTypes.has(item.sourceType)) {
+        const recordType = item.sourceType.replace("project_", "");
+        const tab = recordType === "milestone" ? "milestones" : recordType === "decision" ? "decisions" : `${recordType}s`;
+        if (item.projectId && item.projectId !== this.projectSwitcherValue && !await this.changeProject(item.projectId, { updateHistory: false })) return;
+        this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "projects", tab, project: item.projectId || this.projectSwitcherValue, [recordType]: item.sourceId }));
+        this.replaceWorkspaceLocation();
+        this.openRequestedProjectRecord(recordType, item.sourceId);
+        this.closeInboxItem();
       } else {
         const record = this.collectRecords.find((entry) => entry.id === item.sourceId && entry.recordType === item.sourceType);
         if (record) {
           this.setResearchTab("collect");
           this.openCollectRecord(record);
         } else this.inboxNotice = { tone: "error", text: "This source record is not available in the current authorized snapshot." };
+      }
+    },
+    async confirmProjectNavigation() {
+      if (!this.projectDirty) return true;
+      return globalThis.confirm("Discard unsaved project edits and continue?");
+    },
+    async confirmProjectSwitch() { return this.confirmProjectNavigation(); },
+    async refreshProjectContext(requestedProjectId = null) {
+      this.projectLoading = true;
+      this.projectError = "";
+      try {
+        const context = this.preview ? scopePreviewProject(this.expectedRole).context : await loadProjectContext();
+        this.projectContext = context;
+        const projectId = requestedProjectId || context.selectedProjectId;
+        if (projectId && projectId !== context.selectedProjectId && !this.preview) {
+          const selection = await selectProjectContext(projectId);
+          this.projectContext = mergeProjectSelection(context, selection);
+          this.projectNotice = { tone: "success", text: "Project selected. Refreshing the selected context." };
+        } else if (projectId) this.projectContext.selectedProjectId = projectId;
+        if (this.projectContext.selectedProjectId) {
+          this.syncAccessToProjectContext();
+          const refreshed = await this.refreshProjectSnapshot(this.projectContext.selectedProjectId);
+          if (!refreshed) this.projectReconciliationWarning = "Project selected. The project snapshot needs reconciliation; the selected context remains active.";
+        }
+        return true;
+      } catch (reason) {
+        this.projectError = readableError(reason, "Project context is unavailable.");
+        return false;
+      } finally {
+        this.projectLoading = false;
+      }
+    },
+    syncAccessToProjectContext() {
+      const selected = this.activeProjectAccess;
+      this.access = {
+        ...this.access,
+        projectId: this.projectContext?.selectedProjectId || null,
+        organizationId: selected.organizationId || this.access?.organizationId,
+        organizationName: selected.organizationName || this.access?.organizationName,
+        role: selected.role || this.access?.role,
+        isOwner: selected.isOwner,
+        projectRole: selected.role,
+        projectIsOwner: selected.isOwner,
+      };
+      if (this.activeProject) this.data = { ...this.data, project: { ...(this.data.project || {}), ...this.activeProject } };
+    },
+    async refreshProjectSnapshot(projectId = this.projectSwitcherValue) {
+      if (!projectId) return false;
+      this.projectLoading = true;
+      this.projectError = "";
+      try {
+        const snapshot = this.preview ? scopePreviewProject(this.expectedRole).snapshot : await loadProjectSnapshot(projectId);
+        this.projectSnapshot = normalizeProjectSnapshot(snapshot);
+        this.projectStale = false;
+        return true;
+      } catch (reason) {
+        this.projectError = readableError(reason, "The project snapshot is unavailable.");
+        return false;
+      } finally {
+        this.projectLoading = false;
+      }
+    },
+    async changeProject(projectId, { updateHistory = true } = {}) {
+      if (!projectId || projectId === this.projectSwitcherValue) return true;
+      if (!await this.confirmProjectSwitch()) return false;
+      this.closeProjectRecord(false);
+      this.projectLoading = true;
+      this.projectError = "";
+      this.projectReconciliationWarning = "";
+      try {
+        if (this.preview) {
+          const previewProject = scopePreviewProject(this.expectedRole);
+          this.projectContext = previewProject.context;
+          this.projectSnapshot = normalizeProjectSnapshot(previewProject.snapshot);
+        } else {
+          const selection = await selectProjectContext(projectId);
+          this.projectContext = mergeProjectSelection(this.projectContext, selection);
+          this.syncAccessToProjectContext();
+          this.projectNotice = { tone: "success", text: "Project selected. Refreshing dashboard, inbox, and project data." };
+          if (updateHistory) this.replaceWorkspaceLocation();
+          const refreshes = await Promise.allSettled([this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectContext.selectedProjectId)]);
+          if (refreshes.some((result) => result.status === "rejected" || result.value === false)) {
+            this.projectReconciliationWarning = "Project selected. Some workspace data could not be refreshed; retry reconciliation without changing context.";
+          }
+        }
+        if (this.preview && updateHistory) this.replaceWorkspaceLocation();
+        return true;
+      } catch (reason) {
+        this.projectError = readableError(reason, "The requested project selection is unavailable.");
+        return false;
+      } finally {
+        this.projectLoading = false;
+      }
+    },
+    async reconcileSelectedProject() {
+      if (!this.projectSwitcherValue) return this.refreshProjectContext();
+      this.projectLoading = true;
+      const refreshes = await Promise.all([this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectSwitcherValue)]);
+      const reconciled = refreshes.every((result) => result !== false);
+      this.projectReconciliationWarning = reconciled ? "" : "Project selected. Some workspace data still needs reconciliation.";
+      this.projectLoading = false;
+      return reconciled;
+    },
+    async onProjectSwitcherChange(event) {
+      const changed = await this.changeProject(event.target.value);
+      if (!changed) event.target.value = this.projectSwitcherValue;
+    },
+    hydrateProjectRecordDraft(record = null) {
+      this.projectRecordDraft = buildProjectRecordDraft(this.projectRecordType, record, { ownerId: this.access?.userId });
+      this.projectDirty = false;
+    },
+    startProjectRecord(recordType) {
+      this.projectReturnFocus = document.activeElement;
+      this.projectRecordType = recordType;
+      this.selectedProjectRecord = null;
+      this.projectEditorMode = "new";
+      this.hydrateProjectRecordDraft();
+      this.$nextTick(() => document.querySelector(".project-detail-pane")?.focus?.());
+    },
+    startProjectConfiguration() {
+      this.projectReturnFocus = document.activeElement;
+      this.projectAdminMode = "configure";
+      this.projectAdminDraft = { ...createProjectRecordDraft("project", { ownerId: this.access?.userId }), ...(this.activeProject || {}) };
+      this.projectDirty = false;
+      this.$nextTick(() => document.querySelector(".project-admin-pane")?.focus?.());
+    },
+    startProjectCreation() {
+      this.projectReturnFocus = document.activeElement;
+      this.projectAdminMode = "create";
+      this.projectAdminDraft = createProjectRecordDraft("project", { ownerId: this.access?.userId });
+      this.projectDirty = false;
+      this.$nextTick(() => document.querySelector(".project-admin-pane")?.focus?.());
+    },
+    async closeProjectAdmin() {
+      if (!await this.confirmProjectNavigation()) return false;
+      this.projectAdminMode = null;
+      this.projectDirty = false;
+      const focus = this.projectReturnFocus;
+      this.$nextTick(() => focus?.focus?.());
+      return true;
+    },
+    async saveAdminProject() {
+      if (this.projectSaving || this.activeProjectRole !== "admin") return;
+      this.projectSaving = true;
+      this.projectNotice = null;
+      try {
+        const projectId = this.projectAdminMode === "configure" ? this.activeProject?.id : null;
+        const saved = this.preview
+          ? { ...this.projectAdminDraft, id: projectId || `preview-project-${Date.now()}`, updatedAt: new Date().toISOString() }
+          : await adminSaveProject(this.projectAdminDraft, projectId, projectId ? this.activeProject?.updatedAt : null);
+        if (projectId) this.projectSnapshot.project = { ...this.projectSnapshot.project, ...saved };
+        else if (!this.preview) await this.refreshProjectContext(saved.id);
+        else this.projectSnapshot.project = saved;
+        this.syncAccessToProjectContext();
+        this.projectAdminMode = null;
+        this.projectDirty = false;
+        this.projectNotice = { tone: "success", text: this.preview ? "Preview only: project changes were not persisted." : "Project saved." };
+      } catch (reason) {
+        this.projectNotice = { tone: "error", text: readableError(reason, "The project could not be saved.") };
+      } finally {
+        this.projectSaving = false;
+      }
+    },
+    async saveProjectMember(member = this.projectMemberDraft) {
+      if (!this.activeProject?.id || this.projectSaving || this.activeProjectRole !== "admin") return;
+      this.projectSaving = true;
+      try {
+        if (!this.preview) await persistProjectMember(this.activeProject.id, member.userId, member.active !== false, member.responsibility || "", member.updatedAt || null);
+        else {
+          const existing = this.projectSnapshot.members.find((item) => (item.userId || item.user_id) === member.userId);
+          if (existing) Object.assign(existing, member);
+          else this.projectSnapshot.members.push({ ...member, displayName: member.displayName || member.userId });
+        }
+        this.projectMemberDraft = { userId: "", active: true, responsibility: "" };
+        if (!this.preview) await this.refreshProjectSnapshot();
+        this.projectNotice = { tone: "success", text: this.preview ? "Preview only: membership was not persisted." : "Project membership updated." };
+      } catch (reason) {
+        this.projectNotice = { tone: "error", text: readableError(reason, "Project membership could not be updated.") };
+      } finally {
+        this.projectSaving = false;
+      }
+    },
+    async transitionActiveProject(action) {
+      if (!this.activeProject?.id || this.projectSaving || this.activeProjectRole !== "admin") return;
+      this.projectSaving = true;
+      try {
+        const statuses = { activate: "active", hold: "on_hold", reopen: "active", complete: "completed", archive: "archived" };
+        const saved = this.preview ? { ...this.activeProject, status: statuses[action] || this.activeProject.status, updatedAt: new Date().toISOString() } : await persistProjectLifecycle(this.activeProject.id, action, this.projectLifecycleNote.trim(), this.activeProject.updatedAt);
+        this.projectSnapshot.project = { ...this.projectSnapshot.project, ...saved };
+        this.projectLifecycleNote = "";
+        this.syncAccessToProjectContext();
+        this.projectNotice = { tone: "success", text: this.preview ? "Preview only: lifecycle change was not persisted." : "Project lifecycle updated." };
+      } catch (reason) {
+        this.projectNotice = { tone: "error", text: readableError(reason, "The project lifecycle could not be updated.") };
+      } finally {
+        this.projectSaving = false;
+      }
+    },
+    addProjectEvidenceLink() {
+      this.projectRecordDraft.evidenceLinks ||= [];
+      this.projectRecordDraft.evidenceLinks.push({ evidenceId: "", stance: "supporting", relevanceNote: "" });
+      this.projectDirty = true;
+    },
+    removeProjectEvidenceLink(index) {
+      this.projectRecordDraft.evidenceLinks?.splice(index, 1);
+      this.projectDirty = true;
+    },
+    async openProjectRecord(record, returnFocus = null, updateHistory = true) {
+      if (!record) return;
+      if (this.projectDirty && !await this.confirmProjectNavigation()) return false;
+      this.projectReturnFocus = returnFocus || document.activeElement;
+      this.selectedProjectRecord = { ...record };
+      this.projectRecordType = this.currentProjectRecordType;
+      this.projectEditorMode = "edit";
+      this.projectNotice = null;
+      this.projectUnavailable = null;
+      this.hydrateProjectRecordDraft(record);
+      if (updateHistory) this.replaceWorkspaceLocation();
+      this.$nextTick(() => document.querySelector(".project-detail-pane")?.focus?.());
+      if (this.preview) return;
+      const request = ++this.projectDetailRequest;
+      this.projectDetailLoading = true;
+      try {
+        const detail = normalizeProjectDetail(this.projectRecordType, await loadProjectRecordDetail(this.projectRecordType, record.id), this.projectSnapshot?.members);
+        if (request !== this.projectDetailRequest || this.selectedProjectRecord?.id !== record.id) return;
+        this.selectedProjectRecord = detail;
+        this.hydrateProjectRecordDraft(detail);
+      } catch (reason) {
+        this.projectNotice = { tone: "error", text: readableError(reason, "The project record detail is unavailable.") };
+      } finally {
+        if (request === this.projectDetailRequest) this.projectDetailLoading = false;
+      }
+    },
+    openRequestedProjectRecord(recordType, recordId) {
+      const tab = recordType === "milestone" ? "milestones" : recordType === "decision" ? "decisions" : `${recordType}s`;
+      const record = this.projectSnapshot?.[tab]?.find((item) => item.id === recordId);
+      if (record) this.openProjectRecord(record, null, false);
+      else {
+        this.projectUnavailable = { recordType, recordId };
+        this.normalizeUnavailableProjectRoute();
+      }
+    },
+    normalizeUnavailableProjectRoute() {
+      if (this.view === "projects") this.replaceWorkspaceLocation(true);
+    },
+    async requestCloseProjectRecord(updateHistory = true) {
+      if (!await this.confirmProjectNavigation()) return false;
+      this.closeProjectRecord(updateHistory);
+      return true;
+    },
+    closeProjectRecord(updateHistory = true) {
+      this.projectDetailRequest += 1;
+      this.selectedProjectRecord = null;
+      this.projectEditorMode = null;
+      this.projectRecordType = null;
+      this.projectDirty = false;
+      this.projectConflictDraft = null;
+      this.projectNotice = null;
+      this.projectUnavailable = null;
+      this.projectDetailLoading = false;
+      if (updateHistory && this.view === "projects") this.replaceWorkspaceLocation(true);
+      const focus = this.projectReturnFocus;
+      this.$nextTick(() => focus?.focus?.());
+    },
+    async saveProjectRecord() {
+      if (this.projectSaving) return;
+      this.projectSaving = true;
+      this.projectNotice = null;
+      try {
+        const payload = serializeProjectRecord(this.projectRecordType, this.projectRecordDraft, this.projectSwitcherValue);
+        const mutationKey = this.selectedProjectRecord?.id ? `save:${this.projectRecordType}:${this.selectedProjectRecord.id}` : `create:${this.projectRecordType}`;
+        const clientNonce = this.selectedProjectRecord?.id ? null : ensureProjectMutationNonce(this.projectMutationNonces, mutationKey);
+        const persisted = this.preview ? { ...this.projectRecordDraft, id: this.selectedProjectRecord?.id || `preview-${this.projectRecordType}-${Date.now()}`, updatedAt: new Date().toISOString() } : await persistProjectRecord(this.projectRecordType, payload, this.selectedProjectRecord?.id || null, this.selectedProjectRecord?.updatedAt || null, clientNonce);
+        const saved = this.projectRecordType === "project" ? persisted : normalizeProjectDetail(this.projectRecordType, persisted, this.projectSnapshot?.members);
+        if (this.projectRecordType === "project") this.projectSnapshot.project = { ...this.projectSnapshot.project, ...saved };
+        else {
+          const tab = this.projectRecordType === "milestone" ? "milestones" : this.projectRecordType === "decision" ? "decisions" : `${this.projectRecordType}s`;
+          const exists = this.projectSnapshot[tab].some((item) => item.id === saved.id);
+          this.projectSnapshot[tab] = exists ? this.projectSnapshot[tab].map((item) => item.id === saved.id ? saved : item) : [saved, ...this.projectSnapshot[tab]];
+        }
+        this.selectedProjectRecord = saved;
+        this.projectEditorMode = "edit";
+        this.projectDirty = false;
+        this.projectConflictDraft = null;
+        this.projectNotice = { tone: "success", text: "Project record saved." };
+        delete this.projectMutationNonces[mutationKey];
+        this.replaceWorkspaceLocation(true);
+      } catch (reason) {
+        const stale = reason instanceof Error && /STALE|CONFLICT/.test(reason.message);
+        this.projectStale = stale;
+        if (stale) this.projectConflictDraft = structuredClone(this.projectRecordDraft);
+        this.projectNotice = { tone: "error", text: stale ? "This record changed elsewhere. Your draft is preserved." : readableError(reason, "The project record could not be saved.") };
+      } finally {
+        this.projectSaving = false;
+      }
+    },
+    async transitionProjectRecord(action) {
+      if (!this.selectedProjectRecord || this.projectSaving) return;
+      this.projectSaving = true;
+      try {
+        const mutationKey = `transition:${this.projectRecordType}:${this.selectedProjectRecord.id}:${action}`;
+        const clientNonce = ensureProjectMutationNonce(this.projectMutationNonces, mutationKey);
+        const note = action === "supersede" ? this.projectSupersedeDecisionId.trim() : this.projectTransitionNote.trim();
+        const persisted = this.preview ? { ...this.selectedProjectRecord, status: { activate: "active", submit: "submitted", resubmit: "resubmitted", request_revision: "revision_requested", approve: "approved", reject: "rejected", supersede: "superseded", complete: "completed", resolve: "resolved", reopen: "open", accept: "accepted", close: "closed", block: "blocked", unblock: "active", cancel: "cancelled", assess: "assessing", mitigate: "mitigating", monitor: "monitoring" }[action] || this.selectedProjectRecord.status, updatedAt: new Date().toISOString() } : await persistProjectTransition(this.projectRecordType, this.selectedProjectRecord.id, action, note, this.selectedProjectRecord.updatedAt, clientNonce);
+        const saved = normalizeProjectDetail(this.projectRecordType, persisted, this.projectSnapshot?.members);
+        this.selectedProjectRecord = saved;
+        this.projectTransitionNote = "";
+        this.projectSupersedeDecisionId = "";
+        delete this.projectMutationNonces[mutationKey];
+        await this.refreshProjectSnapshot();
+        this.openRequestedProjectRecord(this.projectRecordType, saved.id);
+        this.projectNotice = { tone: "success", text: `${this.projectActionLabel(action)} recorded in project history.` };
+      } catch (reason) {
+        this.projectStale = reason instanceof Error && /STALE|CONFLICT/.test(reason.message);
+        this.projectNotice = { tone: "error", text: readableError(reason, "The project transition could not be recorded.") };
+      } finally {
+        this.projectSaving = false;
+      }
+    },
+    async reloadStaleProjectRecord() {
+      if (!this.selectedProjectRecord) return;
+      const localDraft = structuredClone(this.projectConflictDraft || this.projectRecordDraft);
+      try {
+        const detail = normalizeProjectDetail(this.projectRecordType, await loadProjectRecordDetail(this.projectRecordType, this.selectedProjectRecord.id), this.projectSnapshot?.members);
+        this.selectedProjectRecord = detail;
+        this.projectRecordDraft = localDraft;
+        this.projectDirty = true;
+        this.projectStale = false;
+        this.projectNotice = { tone: "warning", text: "The latest revision is loaded for comparison. Your unsaved draft remains in the form." };
+      } catch (reason) {
+        this.projectNotice = { tone: "error", text: readableError(reason, "The latest project record could not be loaded.") };
       }
     },
     async submitInboxComment() {
@@ -1717,7 +2165,7 @@ export function registerWorkspace(Alpine) {
         if (sequence === this.dailyEodRefreshSequence) this.scheduleDailyEodRefresh();
       }
     },
-    async refreshDashboard() {
+    async refreshDashboard({ refreshInbox = true } = {}) {
       const sequence = ++this.dashboardRefreshSequence;
       this.loading = true;
       this.error = "";
@@ -1750,7 +2198,7 @@ export function registerWorkspace(Alpine) {
           gateSnapshots: liveData.gateSnapshots || [],
         };
         this.preview = false;
-        await this.refreshInbox();
+        if (refreshInbox) await this.refreshInbox();
         return true;
       } catch (reason) {
         if (sequence !== this.dashboardRefreshSequence) return false;
@@ -1764,6 +2212,10 @@ export function registerWorkspace(Alpine) {
       this.dashboardRefreshSequence += 1;
       const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
       this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
+      const previewProject = scopePreviewProject(this.expectedRole);
+      this.projectContext = previewProject.context;
+      this.projectSnapshot = normalizeProjectSnapshot(previewProject.snapshot);
+      this.access = { ...this.access, projectId: previewProject.context.selectedProjectId, organizationId: previewProject.context.selectedOrganizationId };
       this.preview = true;
       this.hydrateDailyEod(this.data.dailyEod);
       this.dailyEodReportsLoaded = false;

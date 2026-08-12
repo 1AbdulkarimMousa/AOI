@@ -28,6 +28,91 @@ export async function loadInbox(bucket = "needs_action", projectId = null) {
   return data;
 }
 
+export async function loadProjectContext() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_project_context");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function selectProjectContext(projectId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_select_project", { p_project_id: projectId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadProjectSnapshot(projectId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_project_snapshot", { p_project_id: projectId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadProjectRecordDetail(recordType, recordId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_project_record_detail", {
+    p_record_type: recordType,
+    p_record_id: recordId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function saveProjectRecord(recordType, payload, recordId = null, expectedUpdatedAt = null, clientNonce = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_save_project_record", {
+    p_record_type: recordType,
+    p_payload: payload,
+    p_record_id: recordId,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_client_nonce: clientNonce,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function transitionProjectRecord(recordType, recordId, action, note, expectedUpdatedAt, clientNonce = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_transition_project_record", {
+    p_record_type: recordType,
+    p_record_id: recordId,
+    p_action: action,
+    p_note: note,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_client_nonce: clientNonce,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function adminSaveProject(payload, projectId = null, expectedUpdatedAt = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_admin_save_project", {
+    p_payload: payload,
+    p_project_id: projectId,
+    p_expected_updated_at: expectedUpdatedAt,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function setProjectMember(projectId, userId, active, responsibility, expectedUpdatedAt = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_admin_set_project_member", {
+    p_project_id: projectId,
+    p_user_id: userId,
+    p_active: active,
+    p_responsibility: responsibility,
+    p_expected_updated_at: expectedUpdatedAt,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function transitionProject(projectId, action, note, expectedUpdatedAt) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_transition_project", {
+    p_project_id: projectId,
+    p_action: action,
+    p_note: note,
+    p_expected_updated_at: expectedUpdatedAt,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function markInboxRead(itemId) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_mark_inbox_read", { p_item_id: itemId });
   if (error) throw new Error(error.message);

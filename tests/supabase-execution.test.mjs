@@ -515,13 +515,19 @@ test('fresh migrations execute in timestamp order with hardened RPC behavior', {
     assert.notEqual(archivedDashboard.status, 0);
     assert.match(archivedDashboard.stderr, /WORKSPACE_ACCESS_REQUIRED/);
 
+    const ambiguousLegacyDashboard = database.execute(`select public.rpc_aoi_demo_dashboard();`, {
+      ...authenticated('55555555-5555-4555-8555-555555555555'), allowFailure: true,
+    });
+    assert.notEqual(ambiguousLegacyDashboard.status, 0);
+    assert.match(ambiguousLegacyDashboard.stderr, /WORKSPACE_ACCESS_REQUIRED|PROJECT_SELECTION_REQUIRED/);
+    assert.equal(database.query(`
+      select public.rpc_aoi_select_project('44444444-4444-4444-8444-444444444444')->>'selectedProjectId'
+    `, authenticated('55555555-5555-4555-8555-555555555555')), '44444444-4444-4444-8444-444444444444');
     assert.equal(database.query(`
       select
-        context.payload->>'organizationId' = dashboard.payload->'organization'->>'id'
-        and context.payload->>'projectId' = dashboard.payload->'project'->>'id'
-        and context.payload->>'organizationId' = '33333333-3333-4333-8333-333333333333'
-      from (select public.rpc_current_user_context() payload) context
-      cross join lateral (select public.rpc_aoi_demo_dashboard() payload) dashboard
+        dashboard.payload->'organization'->>'id' = '33333333-3333-4333-8333-333333333333'
+        and dashboard.payload->'project'->>'id' = '44444444-4444-4444-8444-444444444444'
+      from (select public.rpc_aoi_demo_dashboard() payload) dashboard
     `, authenticated('55555555-5555-4555-8555-555555555555')), 't');
 
     const revokedReplay = database.execute(`
