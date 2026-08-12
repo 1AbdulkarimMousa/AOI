@@ -73,79 +73,10 @@ begin
 end;
 $$;
 
--- Keep unlinked aggregate observations, but exclude respondent-bound observations
--- whose current consent is not granted from the PMF matrix source.
-do $patch$
-declare
-  v_definition text;
-  v_original text;
-begin
-  select pg_get_functiondef('public.rpc_aoi_pmf_snapshot()'::regprocedure) into v_definition;
-  if position('o.respondent_id is null or exists' in v_definition) = 0 then
-    v_original := v_definition;
-    v_definition := replace(
-      v_definition,
-      'where o.project_id=v_project_id),''[]''::jsonb)',
-      'where o.project_id=v_project_id and (o.respondent_id is null or exists (select 1 from public.respondents respondent where respondent.id = o.respondent_id and respondent.consent_status = ''granted'')),''[]''::jsonb)'
-    );
-    if v_definition = v_original then raise exception 'PMF_SNAPSHOT_PATCH_FAILED'; end if;
-    execute v_definition;
-  end if;
-end;
-$patch$;
-
--- Apply the same consent rule to evidence and Gate snapshots.
-do $patch$
-declare
-  v_definition text;
-  v_original text;
-begin
-  select pg_get_functiondef('private.create_aoi_gate_snapshot(text,text,text)'::regprocedure) into v_definition;
-  if position('respondent.consent_status = ''granted''' in v_definition) = 0 then
-    v_original := v_definition;
-    v_definition := replace(
-      v_definition,
-      'and evidence.pmf_layer = p_pmf_layer and evidence.workflow_status = ''approved''',
-      'and evidence.pmf_layer = p_pmf_layer and evidence.workflow_status = ''approved'' and (evidence.respondent_id is null or exists (select 1 from public.respondents respondent where respondent.id = evidence.respondent_id and respondent.consent_status = ''granted''))'
-    );
-    v_definition := replace(
-      v_definition,
-      'and observation.workflow_status = ''approved''',
-      'and observation.workflow_status = ''approved'' and (observation.respondent_id is null or exists (select 1 from public.respondents respondent where respondent.id = observation.respondent_id and respondent.consent_status = ''granted''))'
-    );
-    if v_definition = v_original then raise exception 'GATE_SNAPSHOT_PATCH_FAILED'; end if;
-    execute v_definition;
-  end if;
-end;
-$patch$;
-
--- EOD archive searches must not cross the active project boundary.
-do $patch$
-declare
-  v_definition text;
-  v_original text;
-begin
-  select pg_get_functiondef('public.rpc_aoi_daily_eod_reports(jsonb,integer,integer)'::regprocedure) into v_definition;
-  if position('brief.project_id = v_project_id' in v_definition) = 0 then
-    v_original := v_definition;
-    if position('v_project_id uuid' in v_definition) = 0 then
-      v_definition := replace(v_definition, 'v_org_id uuid;', 'v_org_id uuid; v_project_id uuid;');
-    end if;
-    v_definition := replace(
-      v_definition,
-      'if v_org_id is null then raise exception ''WORKSPACE_ACCESS_REQUIRED''; end if;',
-      'if v_org_id is null then raise exception ''WORKSPACE_ACCESS_REQUIRED''; end if;' || chr(10) || chr(10) ||
-      '  select project.id into v_project_id from public.projects project' || chr(10) ||
-      '  where project.organization_id = v_org_id and project.status = ''active''' || chr(10) ||
-      '  order by project.created_at, project.id limit 1;' || chr(10) ||
-      '  if v_project_id is null then raise exception ''ACTIVE_PROJECT_REQUIRED''; end if;'
-    );
-    v_definition := replace(v_definition, 'where brief.organization_id = v_org_id', 'where brief.organization_id = v_org_id and brief.project_id = v_project_id');
-    if v_definition = v_original then raise exception 'EOD_REPORT_PATCH_FAILED'; end if;
-    execute v_definition;
-  end if;
-end;
-$patch$;
+-- Consent-aware PMF/Gate snapshots and project-scoped EOD reporting are
+-- replaced explicitly by the later forward hardening migration. Avoid the
+-- historical function-text rewrites here: they are schema-format dependent and
+-- can produce invalid SQL on a fresh installation.
 
 revoke all on function public.rpc_aoi_update_task_checkpoint(uuid, integer, text, text) from public, anon;
 grant execute on function public.rpc_aoi_update_task_checkpoint(uuid, integer, text, text) to authenticated;

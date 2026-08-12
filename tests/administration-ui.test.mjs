@@ -121,7 +121,8 @@ test("activates invitations and blocks temporary-password users until they choos
     readFile(new URL("login.html", root), "utf8"),
   ]);
 
-  assert.match(auth, /rpc_accept_invitation/);
+  assert.doesNotMatch(auth, /rpc_accept_invitation/);
+  assert.match(auth, /completePasswordChange\(password,\s*"",\s*passwordCallback\)/);
   assert.match(auth, /complete_password_change/);
   assert.match(login, /mustChangePassword/);
   assert.match(page, /Choose a new password/);

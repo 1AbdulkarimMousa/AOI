@@ -1,5 +1,5 @@
 import { changePassword, getExistingWorkspaceAccess, requestPasswordReset, signIn, signOut } from "./auth.js";
-import { isPasswordRecoveryUrl } from "./login-flow.js";
+import { passwordEstablishmentType } from "./login-flow.js";
 import { pageUrl, readableError, routeForRole } from "./core.js";
 
 export function registerLogin(Alpine) {
@@ -14,13 +14,15 @@ export function registerLogin(Alpine) {
     message: "",
     access: null,
     passwordSetup: false,
+    passwordCallback: null,
     recovery: false,
     newPassword: "",
     confirmPassword: "",
     async init() {
       try {
-        this.recovery = isPasswordRecoveryUrl(location.href);
-        if (this.recovery) {
+        this.passwordCallback = passwordEstablishmentType(location.href);
+        this.recovery = this.passwordCallback === "recovery";
+        if (this.passwordCallback) {
           this.passwordSetup = true;
           return;
         }
@@ -61,7 +63,7 @@ export function registerLogin(Alpine) {
       }
       this.loading = true;
       try {
-        const access = await changePassword(this.newPassword, this.currentPassword);
+        const access = await changePassword(this.newPassword, this.currentPassword, this.passwordCallback);
         location.assign(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
       } catch (reason) {
         this.error = readableError(reason, "Unable to update your password.");

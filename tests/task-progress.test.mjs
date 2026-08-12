@@ -23,10 +23,7 @@ test("ships the Phase 4 workflow integrity migration", async () => {
   assert.match(migration, /TASK_COMPLETION_PROGRESS_REQUIRED/);
   assert.match(migration, /TASK_CHECKPOINT_LOCKED/);
   assert.match(migration, /TASK_TRANSITION_INVALID/);
-  assert.match(migration, /consent_status = ''granted''/);
-  assert.match(migration, /rpc_aoi_daily_eod_reports\(jsonb,integer,integer\)/);
-  assert.match(migration, /brief\.project_id = v_project_id/);
-  assert.match(migration, /GATE_SNAPSHOT_PATCH_FAILED/);
+  assert.match(migration, /later forward hardening migration/);
 });
 
 test("provisions the CRM outcome onboarding step", async () => {

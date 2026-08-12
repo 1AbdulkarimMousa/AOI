@@ -3,19 +3,27 @@ import {
   adminUpdateDailyEodBrief,
   appendConsentVersion,
   createGateSnapshot,
+  createWorkComment,
   completeOnboardingStep,
   importCandidates,
+  followWorkSource,
+  handoffWork,
   logCrmActivity,
   loadDailyEod,
   loadDailyEodReports,
   loadDashboard,
+  loadInbox,
   loadCollectRecordDetail,
+  loadTaskDetail,
+  markInboxRead,
   logOutreach,
+  reviewTask,
   reviewResearchRecord as persistResearchReview,
   saveDailyEodBrief,
   saveResearchRecord as persistResearchRecord,
   snoozePasswordReminder,
   updateTaskCheckpoint,
+  updateResearchRecord as persistResearchUpdate,
   uploadResearchAttachment,
   upsertCandidate,
   upsertCrmContact,
@@ -28,12 +36,13 @@ import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "
 import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues, validateResearchRecord } from "./pmf.js";
 import { shouldConfirmSurveyRoute } from "./surveys/analysis.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
-import { buildCollectIndex, filterCollectRecords, gamificationLevel, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
+import { buildCollectIndex, filterCollectRecords, gamificationLevel, hydrateResearchRevisionForm, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 import { createChatState } from "./chat.js";
 import { createProfileState } from "./profile.js";
+import { createInboxState, inboxBucketLabel, inboxCount as countInboxBucket, inboxRoleCopy, unreadInboxCount } from "./inbox.js";
 
 function today() {
   return localDateValue();
@@ -117,13 +126,25 @@ export function registerWorkspace(Alpine) {
     sidebarCollapsed: false,
     commandOpen: false,
     notificationOpen: false,
-    notificationsRead: false,
+    inbox: createInboxState(),
+    selectedInboxItem: null,
+    inboxReturnFocus: null,
+    inboxLoading: false,
+    inboxNotice: null,
+    inboxComment: "",
+    inboxCommentNonce: null,
+    inboxHandoff: { toUserId: "", reason: "", nonce: null },
+    inboxMutation: false,
     query: "",
     taskFilter: "all",
     selectedTask: null,
+    taskDetailRequest: 0,
+    loadingTaskDetail: false,
     taskCheckpointForm: { progress: 0, status: "assigned", note: "" },
+    taskReviewForm: { note: "" },
     taskCheckpointNotice: null,
     savingTaskCheckpoint: false,
+    savingTaskReview: "",
     taskReturnFocus: null,
      selectedLayer: null,
        selectedCandidate: null,
@@ -158,8 +179,9 @@ export function registerWorkspace(Alpine) {
        collectReturnFocus: null,
        loadingCollectDetail: false,
        collectionType: "respondent",
-      researchForms: defaultResearchForms(),
-      researchNotice: null,
+       researchForms: defaultResearchForms(),
+       researchEditState: null,
+       researchNotice: null,
       savingResearch: false,
       reviewNotes: {},
       reviewingRecord: null,
@@ -217,6 +239,9 @@ export function registerWorkspace(Alpine) {
        const searchParams = new URLSearchParams(location.search);
        const requestedView = searchParams.get("view");
        const requestedContactId = searchParams.get("contact");
+       const requestedTaskId = searchParams.get("task");
+       const requestedRecordType = searchParams.get("type");
+       const requestedRecordId = searchParams.get("id");
        const requestedTab = searchParams.get("tab");
        const route = resolveWorkspaceRoute({ view: requestedView, tab: requestedTab, section: searchParams.get("section"), defaultView: "today", defaultTodayTab: this.todayTab });
        this.applyWorkspaceRoute(route);
@@ -241,7 +266,9 @@ export function registerWorkspace(Alpine) {
         };
         this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
         this.hydrateDailyEod(this.data.dailyEod);
-        this.openRequestedCrmContact(requestedContactId);
+         this.openRequestedCrmContact(requestedContactId);
+         if (requestedTaskId) this.openRequestedTask(requestedTaskId);
+         if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
         this.preview = true;
         this.ready = true;
         this.loading = false;
@@ -276,6 +303,8 @@ export function registerWorkspace(Alpine) {
         await this.refreshDashboard();
         if (this.isSurveyWorkspaceActive) await this.openSurveyWorkspace();
         this.openRequestedCrmContact(requestedContactId);
+        if (requestedTaskId) this.openRequestedTask(requestedTaskId);
+        if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
         await this.refreshDailyEod();
         this.setupDailyEodRefresh();
         if (this.view === "eod") await this.searchDailyEodReports(1);
@@ -327,6 +356,10 @@ export function registerWorkspace(Alpine) {
       if (this.taskFilter === "submitted") return this.data.tasks.filter((task) => task.status === "submitted");
       return this.data.tasks;
     },
+    get inboxRoleText() { return inboxRoleCopy(this.access || { role: this.expectedRole }); },
+    get inboxBucketName() { return inboxBucketLabel(this.inbox.bucket); },
+    get inboxUnread() { return unreadInboxCount(this.inbox); },
+    inboxCount(bucket) { return countInboxBucket(this.inbox, bucket); },
     get canUpdateSelectedTask() {
       return this.access?.role === "intern" && this.selectedTask && !["submitted", "approved", "completed", "cancelled"].includes(this.selectedTask.status);
     },
@@ -407,6 +440,14 @@ export function registerWorkspace(Alpine) {
         status: this.collectStatusFilter,
         query: this.collectQuery,
       });
+    },
+    get canEditSelectedCollectRecord() {
+      const record = this.collectDetail?.record || {};
+      const workflowStatus = record.workflow_status || this.selectedCollectRecord?.workflowStatus;
+      const assignedTo = record.assigned_to || this.selectedCollectRecord?.ownerId || this.selectedCollectRecord?.assignedTo;
+      return !this.preview
+        && ["draft", "revision_requested"].includes(workflowStatus)
+        && assignedTo === this.access?.userId;
     },
     get gamification() {
       return this.data.gamification || {
@@ -565,6 +606,103 @@ export function registerWorkspace(Alpine) {
       localStorage.setItem("aoi-locale", this.locale);
       document.documentElement.lang = this.locale;
     },
+    async refreshInbox(bucket = this.inbox.bucket) {
+      if (this.preview) return;
+      this.inboxLoading = true;
+      this.inboxNotice = null;
+      try {
+        this.inbox = createInboxState(await loadInbox(bucket, this.access?.projectId || null));
+        if (this.selectedInboxItem) this.selectedInboxItem = this.inbox.items.find((item) => item.id === this.selectedInboxItem.id) || null;
+      } catch (reason) {
+        this.inboxNotice = { tone: "error", text: readableError(reason, "The work inbox is temporarily unavailable.") };
+      } finally {
+        this.inboxLoading = false;
+      }
+    },
+    async setInboxBucket(bucket) {
+      this.selectedInboxItem = null;
+      await this.refreshInbox(bucket);
+    },
+    async openInboxItem(item) {
+      this.inboxReturnFocus = document.activeElement;
+      this.selectedInboxItem = { ...item };
+      this.$nextTick(() => document.querySelector(".inbox-detail")?.focus?.());
+      if (!item.readAt && !this.preview) {
+        try {
+          const saved = await markInboxRead(item.id);
+          this.selectedInboxItem.readAt = saved.readAt;
+          this.inbox.items = this.inbox.items.map((entry) => entry.id === item.id ? { ...entry, readAt: saved.readAt } : entry);
+        } catch (reason) {
+          this.inboxNotice = { tone: "error", text: readableError(reason, "The inbox item could not be marked read.") };
+        }
+      }
+    },
+    closeInboxItem() {
+      this.selectedInboxItem = null;
+      const focus = this.inboxReturnFocus;
+      this.$nextTick(() => focus?.focus?.());
+    },
+    openInboxSource(item) {
+      if (!item) return;
+      if (item.sourceType === "task") {
+        const task = this.data.tasks.find((entry) => entry.id === item.sourceId) || { id: item.sourceId, title: item.summary, status: "assigned" };
+        this.selectTask(task);
+      } else {
+        const record = this.collectRecords.find((entry) => entry.id === item.sourceId && entry.recordType === item.sourceType);
+        if (record) {
+          this.setResearchTab("collect");
+          this.openCollectRecord(record);
+        } else this.inboxNotice = { tone: "error", text: "This source record is not available in the current authorized snapshot." };
+      }
+    },
+    async submitInboxComment() {
+      if (!this.selectedInboxItem || !this.inboxComment.trim() || this.inboxMutation) return;
+      this.inboxMutation = true;
+      this.inboxCommentNonce ||= globalThis.crypto.randomUUID();
+      try {
+        await createWorkComment(this.selectedInboxItem.sourceType, this.selectedInboxItem.sourceId, this.inboxComment.trim(), this.inboxCommentNonce);
+        this.inboxComment = "";
+        this.inboxCommentNonce = null;
+        this.inboxNotice = { tone: "success", text: "Comment attached to the source record." };
+      } catch (reason) {
+        this.inboxNotice = { tone: "error", text: readableError(reason, "The contextual comment was not saved.") };
+      } finally {
+        this.inboxMutation = false;
+      }
+    },
+    async toggleInboxFollow() {
+      if (!this.selectedInboxItem || this.inboxMutation) return;
+      this.inboxMutation = true;
+      try {
+        await followWorkSource(this.selectedInboxItem.sourceType, this.selectedInboxItem.sourceId, true);
+        this.inboxNotice = { tone: "success", text: "You are now following this source record." };
+        await this.refreshInbox(this.inbox.bucket);
+      } catch (reason) {
+        this.inboxNotice = { tone: "error", text: readableError(reason, "Follow state was not saved.") };
+      } finally {
+        this.inboxMutation = false;
+      }
+    },
+    async submitInboxHandoff() {
+      if (!this.selectedInboxItem || this.inboxMutation) return;
+      const toUserId = this.inboxHandoff.toUserId.trim();
+      const reason = this.inboxHandoff.reason.trim();
+      if (!toUserId || reason.length < 12) {
+        this.inboxNotice = { tone: "error", text: "Choose an authorized recipient and provide at least 12 characters of handoff context." };
+        return;
+      }
+      this.inboxMutation = true;
+      this.inboxHandoff.nonce ||= globalThis.crypto.randomUUID();
+      try {
+        await handoffWork(this.selectedInboxItem.sourceType, this.selectedInboxItem.sourceId, toUserId, reason, this.inboxHandoff.nonce);
+        this.inboxHandoff = { toUserId: "", reason: "", nonce: null };
+        this.inboxNotice = { tone: "success", text: "Reasoned handoff sent to the authorized recipient." };
+      } catch (reasonError) {
+        this.inboxNotice = { tone: "error", text: readableError(reasonError, "The handoff was not saved.") };
+      } finally {
+        this.inboxMutation = false;
+      }
+    },
     showToast(title, body) {
       this.toast = { title, body };
       setTimeout(() => { this.toast = null; }, 4200);
@@ -577,17 +715,43 @@ export function registerWorkspace(Alpine) {
         this.showToast("Onboarding step", readableError(reason, "Unable to update onboarding right now."));
       }
     },
-    selectTask(task) {
-      if (!task) return;
-      if (!this.selectedTask) this.taskReturnFocus = document.activeElement;
-      this.selectedTask = { ...task };
+    resetTaskForms(task) {
       this.taskCheckpointForm = {
         progress: Number(task.progress) || 0,
         status: task.status === "revision_requested" ? "resubmitted" : task.status,
         note: "",
       };
+      this.taskReviewForm = { note: "" };
+    },
+    async selectTask(task) {
+      if (!task) return;
+      if (!this.selectedTask) this.taskReturnFocus = document.activeElement;
+      this.selectedTask = { ...task };
+      this.resetTaskForms(task);
       this.taskCheckpointNotice = null;
       this.$nextTick(() => this.focusDialog(".task-drawer"));
+      if (this.preview) return;
+      const requestId = ++this.taskDetailRequest;
+      this.loadingTaskDetail = true;
+      try {
+        const detail = await loadTaskDetail(task.id);
+        if (requestId !== this.taskDetailRequest || this.selectedTask?.id !== task.id) return;
+        this.selectedTask = detail;
+        this.resetTaskForms(detail);
+      } catch (reason) {
+        if (requestId !== this.taskDetailRequest) return;
+        this.taskCheckpointNotice = { tone: "error", text: readableError(reason, "Unable to load the task detail.") };
+      } finally {
+        if (requestId === this.taskDetailRequest) this.loadingTaskDetail = false;
+      }
+    },
+    openRequestedTask(taskId) {
+      const task = this.data.tasks.find((entry) => entry.id === taskId);
+      if (task) this.selectTask(task);
+    },
+    openRequestedCollectRecord(recordType, recordId) {
+      const record = this.collectRecords.find((entry) => entry.id === recordId && entry.recordType === recordType);
+      if (record) this.openCollectRecord(record);
     },
     openTaskCheckpoint() {
       const task = this.data.tasks.find((item) => !["completed", "submitted", "approved", "cancelled"].includes(item.status));
@@ -595,8 +759,10 @@ export function registerWorkspace(Alpine) {
       else this.showToast("No open task", "There is no task available for a checkpoint update.");
     },
     closeTask() {
+      this.taskDetailRequest += 1;
       this.selectedTask = null;
       this.taskCheckpointNotice = null;
+      this.loadingTaskDetail = false;
       this.$nextTick(() => this.taskReturnFocus?.focus?.());
     },
     selectCandidate(candidate) {
@@ -883,6 +1049,10 @@ export function registerWorkspace(Alpine) {
       this.researchForms.observation = normalizeObservationValues(this.researchForms.observation, this.selectedMetricDefinition);
     },
     startCollectionRecord(recordType = "respondent", respondentId = "") {
+      if (this.researchEditState) {
+        this.researchForms[this.researchEditState.recordType] = defaultResearchForms()[this.researchEditState.recordType];
+      }
+      this.resetResearchEditState();
       this.collectionType = recordType;
       this.collectMode = "create";
       if (respondentId && this.researchForms[recordType] && recordType !== "respondent") {
@@ -890,6 +1060,38 @@ export function registerWorkspace(Alpine) {
         this.researchForms[recordType] = prefillResearchForm(this.researchForms[recordType], respondent);
       }
       this.researchNotice = null;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    resetResearchEditState() {
+      this.researchEditState = null;
+    },
+    startResearchRevision() {
+      if (!this.canEditSelectedCollectRecord) return;
+      const selected = this.selectedCollectRecord;
+      const detail = this.collectDetail;
+      const record = { ...selected, ...detail.record };
+      const expectedUpdatedAt = record.updated_at || selected.updatedAt;
+      if (!expectedUpdatedAt) {
+        this.researchNotice = { tone: "error", text: "This record has no revision timestamp. Reload it before editing." };
+        return;
+      }
+      this.researchForms[selected.recordType] = hydrateResearchRevisionForm(
+        selected.recordType,
+        defaultResearchForms()[selected.recordType],
+        { ...detail, record, summary: selected, segments: this.data.segments || [] },
+      );
+      this.researchEditState = {
+        recordType: selected.recordType,
+        recordId: this.selectedCollectRecord.id,
+        expectedUpdatedAt: expectedUpdatedAt,
+        workflowStatus: record.workflow_status || selected.workflowStatus,
+        reviewNotes: record.review_notes || selected.reviewNotes || "",
+      };
+      this.collectionType = selected.recordType;
+      this.collectMode = "create";
+      this.researchNotice = null;
+      this.closeCollectRecord();
+      this.persistResearchDrafts();
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
     continueCollection(recordType) {
@@ -949,13 +1151,26 @@ export function registerWorkspace(Alpine) {
         const stored = JSON.parse(globalThis.sessionStorage.getItem(this.researchDraftStorageKey()) || "null");
         const fresh = stored?.savedAt && Date.now() - stored.savedAt < 8 * 60 * 60 * 1000;
         this.researchForms = restoreResearchDrafts(defaultResearchForms(), fresh ? stored.forms : null);
+        this.researchEditState = fresh
+          && stored.editState
+          && defaultResearchForms()[stored.editState.recordType]
+          && stored.editState.recordId
+          && stored.editState.expectedUpdatedAt
+          && ["draft", "revision_requested"].includes(stored.editState.workflowStatus)
+          ? { ...stored.editState }
+          : null;
+        if (this.researchEditState) {
+          this.collectionType = this.researchEditState.recordType;
+          this.collectMode = "create";
+        }
       } catch {
         this.researchForms = defaultResearchForms();
+        this.researchEditState = null;
       }
     },
     persistResearchDrafts() {
       if (this.preview) return;
-      globalThis.sessionStorage.setItem(this.researchDraftStorageKey(), JSON.stringify({ savedAt: Date.now(), forms: this.researchForms }));
+      globalThis.sessionStorage.setItem(this.researchDraftStorageKey(), JSON.stringify({ savedAt: Date.now(), forms: this.researchForms, editState: this.researchEditState }));
     },
     setupResearchDraftAutosave() {
       if (this.preview || typeof this.$watch !== "function") return;
@@ -963,11 +1178,10 @@ export function registerWorkspace(Alpine) {
     },
     async saveResearchRecord(recordType, workflowStatus) {
       const form = this.researchForms[recordType];
-      let payload = { ...form, workflowStatus };
+      let payload = { ...form };
       if (recordType === "observation") {
-        payload = { ...normalizeObservationValues(payload, this.selectedMetricDefinition), workflowStatus };
+        payload = normalizeObservationValues(payload, this.selectedMetricDefinition);
         this.researchForms.observation = { ...payload };
-        delete this.researchForms.observation.workflowStatus;
       }
       if (["session", "product_event", "value_exchange"].includes(recordType)) {
         payload.segmentCode = this.respondentSegmentCode(form.respondentId);
@@ -987,12 +1201,24 @@ export function registerWorkspace(Alpine) {
           this.researchNotice = { tone: "success", text: `Preview ${recordType.replaceAll("_", " ")} validated. Live mode will persist it as ${workflowStatus}.` };
           return;
         }
-        await persistResearchRecord(recordType, payload);
+        const editState = this.researchEditState?.recordType === recordType ? this.researchEditState : null;
+        const action = workflowStatus === "draft"
+          ? "save"
+          : editState?.workflowStatus === "revision_requested" ? "resubmit" : "submit";
+        if (editState) {
+          await persistResearchUpdate(recordType, editState.recordId, payload, this.researchEditState.expectedUpdatedAt, action);
+        } else {
+          await persistResearchRecord(recordType, { ...payload, workflowStatus });
+        }
         this.researchForms[recordType] = defaultResearchForms()[recordType];
-        this.researchNotice = { tone: "success", text: `${recordType.replaceAll("_", " ")} ${workflowStatus === "submitted" ? "submitted for review" : "saved as a draft"}.` };
+        this.resetResearchEditState();
+        this.persistResearchDrafts();
+        this.collectMode = "browse";
+        this.researchNotice = { tone: "success", text: `${recordType.replaceAll("_", " ")} ${action === "resubmit" ? "resubmitted for review" : workflowStatus === "submitted" ? "submitted for review" : "saved as a draft"}.` };
         await this.refreshDashboard();
       } catch (reason) {
-        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to save the research record.") };
+        const stale = reason instanceof Error && reason.message.includes("RESEARCH_STALE_WRITE");
+        this.researchNotice = { tone: "error", text: stale ? "This research record changed in another session. Reopen it to load the latest version before saving." : readableError(reason, "Unable to save the research record.") };
       } finally {
         this.savingResearch = false;
       }
@@ -1003,11 +1229,12 @@ export function registerWorkspace(Alpine) {
       this.researchNotice = null;
       try {
         if (this.preview) throw new Error("Review actions are disabled in preview mode.");
-        await persistResearchReview(record.recordType, record.id, action, this.reviewNotes[record.id] || "");
+        await persistResearchReview(record.recordType, record.id, action, this.reviewNotes[record.id] || "", record.updatedAt);
         this.researchNotice = { tone: "success", text: action === "approve" ? "Record approved and included in analysis." : "Revision requested from the record owner." };
         await this.refreshDashboard();
       } catch (reason) {
-        this.researchNotice = { tone: "error", text: readableError(reason, "Unable to review the record.") };
+        const stale = reason instanceof Error && reason.message.includes("RESEARCH_STALE_WRITE");
+        this.researchNotice = { tone: "error", text: stale ? "This submitted record changed. Refresh the review queue before deciding." : readableError(reason, "Unable to review the record.") };
       } finally {
         this.reviewingRecord = null;
       }
@@ -1084,19 +1311,54 @@ export function registerWorkspace(Alpine) {
       }
       this.savingTaskCheckpoint = true;
       this.taskCheckpointNotice = null;
+      let committed = false;
       try {
         const saved = this.preview
-          ? { progress, status: this.taskCheckpointForm.status }
-          : await updateTaskCheckpoint(this.selectedTask.id, progress, this.taskCheckpointForm.status, note);
+          ? { progress, status: this.taskCheckpointForm.status, updatedAt: new Date().toISOString() }
+          : await updateTaskCheckpoint(this.selectedTask.id, progress, this.taskCheckpointForm.status, note, this.selectedTask.updatedAt);
+        committed = true;
         this.data.tasks = this.data.tasks.map((task) => task.id === this.selectedTask.id ? { ...task, progress: saved.progress, status: saved.status } : task);
-        this.selectedTask = { ...this.selectedTask, progress: saved.progress, status: saved.status };
+        this.selectedTask = { ...this.selectedTask, progress: saved.progress, status: saved.status, updatedAt: saved.updatedAt };
         this.taskCheckpointForm = { progress: saved.progress, status: saved.status, note: "" };
         if (!this.preview) await this.refreshDashboard();
-        this.taskCheckpointNotice = { tone: "success", text: saved.status === "completed" ? "Task completed. Verified XP was recorded by the server." : "Checkpoint saved with an auditable note." };
+        if (!this.preview) this.selectedTask = await loadTaskDetail(saved.id || this.selectedTask.id);
+        this.taskCheckpointNotice = { tone: "success", text: saved.status === "resubmitted" ? "Revision resubmitted for administrator review." : "Checkpoint saved with an auditable note." };
       } catch (reason) {
-        this.taskCheckpointNotice = { tone: "error", text: readableError(reason, "Unable to persist task progress.") };
+        const stale = reason instanceof Error && reason.message.includes("TASK_STALE_WRITE");
+        this.taskCheckpointNotice = committed
+          ? { tone: "warning", text: "The checkpoint was saved, but the refreshed task could not be loaded. Close and reopen the task before taking another action." }
+          : { tone: "error", text: stale ? "This task changed in another session. Close and reopen it before trying again." : readableError(reason, "Unable to persist task progress.") };
       } finally {
         this.savingTaskCheckpoint = false;
+      }
+    },
+    async reviewSelectedTask(action) {
+      if (this.access?.role !== "admin" || !this.selectedTask || this.savingTaskReview) return;
+      const note = this.taskReviewForm.note.trim();
+      if (action === "request_revision" && note.length < 12) {
+        this.taskCheckpointNotice = { tone: "error", text: "Add at least 12 characters of actionable revision guidance." };
+        return;
+      }
+      this.savingTaskReview = action;
+      let committed = false;
+      try {
+        const saved = this.preview
+          ? { id: this.selectedTask.id, status: { request_revision: "revision_requested", approve: "approved", complete: "completed" }[action], updatedAt: new Date().toISOString() }
+          : await reviewTask(this.selectedTask.id, action, note, this.selectedTask.updatedAt);
+        committed = true;
+        this.data.tasks = this.data.tasks.map((task) => task.id === saved.id ? { ...task, status: saved.status, progress: saved.status === "completed" ? 100 : task.progress, updatedAt: saved.updatedAt } : task);
+        this.selectedTask = { ...this.selectedTask, status: saved.status, progress: saved.status === "completed" ? 100 : this.selectedTask.progress, updatedAt: saved.updatedAt };
+        this.taskReviewForm.note = "";
+        if (!this.preview) await this.refreshDashboard();
+        if (!this.preview) this.selectedTask = await loadTaskDetail(saved.id);
+        this.taskCheckpointNotice = { tone: "success", text: { request_revision: "Revision requested with guidance for the assignee.", approve: "Task approved. It is ready for administrator completion.", complete: "Approved task completed." }[action] };
+      } catch (reason) {
+        const stale = reason instanceof Error && reason.message.includes("TASK_STALE_WRITE");
+        this.taskCheckpointNotice = committed
+          ? { tone: "warning", text: "The review action was saved, but the refreshed task could not be loaded. Close and reopen the task before taking another action." }
+          : { tone: "error", text: stale ? "This task changed in another session. Close and reopen it before trying again." : readableError(reason, "Unable to review this task.") };
+      } finally {
+        this.savingTaskReview = "";
       }
     },
     async snoozePasswordReminder() {
@@ -1488,6 +1750,7 @@ export function registerWorkspace(Alpine) {
           gateSnapshots: liveData.gateSnapshots || [],
         };
         this.preview = false;
+        await this.refreshInbox();
         return true;
       } catch (reason) {
         if (sequence !== this.dashboardRefreshSequence) return false;

@@ -11,17 +11,10 @@ export async function getSession() {
 
 export async function requireWorkspaceAccess() {
   const client = getSupabaseClient();
-  let context = await client.rpc("rpc_current_user_context");
+  const context = await client.rpc("rpc_current_user_context");
   if (!context.error && context.data) return context.data;
   if (context.error) throw new Error(context.error.message || "Unable to verify workspace access.");
-
-  const accepted = await client.rpc("rpc_accept_invitation");
-  if (!accepted.error && accepted.data) return accepted.data;
-  if (accepted.error) throw new Error(accepted.error.message || "Unable to accept the workspace invitation.");
-  context = await client.rpc("rpc_current_user_context");
-  if (context.error) throw new Error(context.error.message || "Unable to verify workspace access.");
-  if (!context.data) throw new WorkspaceMembershipError("Your account is not assigned to the AOI workspace.");
-  return context.data;
+  throw new WorkspaceMembershipError("Your account is not assigned to the AOI workspace.");
 }
 
 export async function signIn(email, password) {
@@ -58,11 +51,11 @@ export async function signOut() {
   await getSupabaseClient().auth.signOut();
 }
 
-export async function completePasswordChange(password, currentPassword = "") {
+export async function completePasswordChange(password, currentPassword = "", passwordCallback = null) {
   if (!isStrongPassword(password)) throw new Error("Choose a stronger password: at least 14 characters with upper/lower case, a digit, and a symbol.");
   const client = getSupabaseClient();
   const { data, error } = await client.functions.invoke("admin-create-user", {
-    body: { action: "complete_password_change", password, currentPassword },
+    body: { action: "complete_password_change", password, currentPassword, passwordCallback },
   });
   if (error || data?.error) throw new Error(data?.error || error?.message || "Unable to change the password.");
   return data.access;
@@ -75,9 +68,18 @@ export async function requestPasswordReset(email, redirectTo) {
   if (error) throw new Error(error.message);
 }
 
-export async function changePassword(password, currentPassword = "") {
+export async function changePassword(password, currentPassword = "", passwordCallback = null) {
   if (!isStrongPassword(password)) throw new Error("Choose a stronger password: at least 14 characters with upper/lower case, a digit, and a symbol.");
   const client = getSupabaseClient();
+  if (passwordCallback === "recovery") return completePasswordChange(password);
+  if (passwordCallback === "invite" || passwordCallback === "signup") {
+    const { data: claimData, error: claimError } = await client.auth.getClaims();
+    const expectedMethod = passwordCallback === "invite" ? "invite" : "email/signup";
+    const authMethods = Array.isArray(claimData?.claims?.amr) ? claimData.claims.amr : [];
+    const verifiedCallback = authMethods.some((entry) => entry?.method === expectedMethod && Number.isInteger(entry?.timestamp) && entry.timestamp > 0);
+    if (claimError || !verifiedCallback) throw new Error("The invitation session could not be verified. Open the latest invitation link and try again.");
+    return completePasswordChange(password, "", passwordCallback);
+  }
   const access = await requireWorkspaceAccess();
   if (access.mustChangePassword) return completePasswordChange(password, currentPassword);
   const current = String(currentPassword || "");

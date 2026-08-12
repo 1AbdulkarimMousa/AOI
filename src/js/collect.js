@@ -92,6 +92,35 @@ export function prefillResearchForm(form, respondent) {
   };
 }
 
+function snakeCase(value) {
+  return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+function detailValue(sources, key) {
+  const snakeKey = snakeCase(key);
+  for (const source of sources) {
+    if (source && Object.hasOwn(source, snakeKey)) return source[snakeKey];
+    if (source && Object.hasOwn(source, key)) return source[key];
+  }
+  return undefined;
+}
+
+export function hydrateResearchRevisionForm(recordType, defaults, detail = {}) {
+  const record = detail.record || {};
+  const sources = recordType === "respondent"
+    ? [record, detail.contact, detail.consentHistory?.[0], detail.summary]
+    : [record, detail.summary];
+  return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
+    let value = detailValue(sources, key);
+    if (key === "segmentCode" && value === undefined && record.segment_id) {
+      value = (detail.segments || []).find((segment) => segment.id === record.segment_id)?.code;
+    }
+    if (value === undefined || value === null) return [key, fallback];
+    if (typeof fallback === "string" && typeof value === "boolean") return [key, String(value)];
+    return [key, value];
+  }));
+}
+
 export function restoreResearchDrafts(defaults, stored) {
   if (!stored || typeof stored !== "object") return structuredClone(defaults);
   return Object.fromEntries(Object.entries(defaults).map(([recordType, defaultForm]) => {

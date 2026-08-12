@@ -186,6 +186,38 @@ test("opens real role-correct task checkpoints instead of a toast-only action", 
   assert.match(template, /replace\("@click=\\"showToast\('Progress update'/);
 });
 
+test("wires the authoritative task lifecycle through detail, checkpoint, and admin review RPCs", async () => {
+  const [api, workspace, template] = await Promise.all([
+    readFile(new URL("src/js/api.js", root), "utf8"),
+    readFile(new URL("src/js/workspace.js", root), "utf8"),
+    readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+  ]);
+
+  assert.match(api, /export async function loadTaskDetail\(taskId\)[\s\S]*?rpc\("rpc_aoi_task_detail",\s*\{ p_task_id: taskId \}\)/);
+  assert.match(api, /updateTaskCheckpoint\(taskId, progress, status = null, note = null, expectedUpdatedAt\)[\s\S]*?p_expected_updated_at: expectedUpdatedAt/);
+  assert.match(api, /export async function reviewTask\(taskId, action, note, expectedUpdatedAt\)[\s\S]*?rpc\("rpc_aoi_review_task"[\s\S]*?p_expected_updated_at: expectedUpdatedAt/);
+
+  assert.match(workspace, /async selectTask\(task\)[\s\S]*?loadTaskDetail\(task\.id\)/);
+  assert.match(workspace, /updateTaskCheckpoint\([\s\S]*?this\.selectedTask\.updatedAt/);
+  assert.match(workspace, /reviewTask\(this\.selectedTask\.id, action, note, this\.selectedTask\.updatedAt\)/);
+  assert.match(workspace, /TASK_STALE_WRITE[\s\S]*?taskCheckpointNotice/);
+  assert.match(workspace, /checkpoint was saved, but the refreshed task could not be loaded/);
+  assert.match(workspace, /review action was saved, but the refreshed task could not be loaded/);
+  assert.match(workspace, /action === "request_revision"[\s\S]*?note\.length < 12/);
+
+  const drawer = template.match(/const taskDrawerTemplate = String\.raw`([\s\S]*?)`;/)?.[1] || "";
+  assert.match(drawer, /selectedTask\?\.acceptanceCriteria/);
+  assert.match(drawer, /selectedTask\?\.estimatedHours/);
+  assert.match(drawer, /selectedTask\?\.reviewNote/);
+  assert.match(drawer, /selectedTask\?\.reviewHistory/);
+  assert.match(drawer, /\['submitted','resubmitted'\]\.includes\(selectedTask\?\.status\)[\s\S]*?reviewSelectedTask\('request_revision'\)/);
+  assert.match(drawer, /\['submitted','resubmitted'\]\.includes\(selectedTask\?\.status\)[\s\S]*?reviewSelectedTask\('approve'\)/);
+  assert.match(drawer, /selectedTask\?\.status==='approved'[\s\S]*?reviewSelectedTask\('complete'\)/);
+  assert.match(drawer, /taskCheckpointForm\.status==='resubmitted'/);
+  assert.doesNotMatch(drawer, /option value="completed"/);
+  assert.match(drawer, /taskCheckpointNotice[\s\S]*?role="alert"/);
+});
+
 test("wires respondent-scoped sessions, consent metadata, value clearing, and the Analyze CTA", async () => {
   const [workspace, template] = await Promise.all([
     readFile(new URL("src/js/workspace.js", root), "utf8"),

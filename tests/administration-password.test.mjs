@@ -91,6 +91,16 @@ test("wires password management into the Administration drawer", async () => {
   assert.doesNotMatch(styles, /\.admin-password-toggle[^}]*display:\s*flex\s*!important/);
 });
 
+test("Administration shows truthful privileged reset controls and password policy", async () => {
+  const template = await readFile(new URL("src/js/administration-template.js", root), "utf8");
+
+  assert.doesNotMatch(template, /minlength="12"|12 characters/);
+  assert.equal((template.match(/minlength="14"/g) || []).length, 4);
+  assert.match(template, /14 characters[^<]*(uppercase|upper case)[^<]*lowercase[^<]*digit[^<]*symbol/i);
+  assert.match(template, /currentUserIsOwner[^\n]*(isOwner|role)/);
+  assert.match(template, /Only the organization owner can reset an owner or administrator password\./);
+});
+
 test("secures self changes and administrator resets in the Edge Function", async () => {
   const [source, migration] = await Promise.all([
     readFile(new URL("supabase/functions/admin-create-user/index.ts", root), "utf8"),

@@ -42,7 +42,7 @@ function contrast(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test("light and dark semantic token pairs meet WCAG AA", () => {
+test("light and dark semantic token pairs meet WCAG AAA for normal text", () => {
   const themes = themeTokens(aoi);
   const pairs = [
     ["ink", "bg"],
@@ -62,8 +62,8 @@ test("light and dark semantic token pairs meet WCAG AA", () => {
     for (const [foreground, background] of pairs) {
       assert.ok(tokens[foreground] && tokens[background], `${themeName} must define ${foreground}/${background}`);
       assert.ok(
-        contrast(tokens[foreground], tokens[background]) >= 4.5,
-        `${themeName} ${foreground} on ${background} must meet 4.5:1`,
+        contrast(tokens[foreground], tokens[background]) >= 7,
+        `${themeName} ${foreground} on ${background} must meet 7:1`,
       );
     }
   }
@@ -78,6 +78,7 @@ test("interactive composites expose focus and 44px touch contracts", () => {
   assert.match(helpcenter, /\.help-language,[\s\S]*?\.help-icon-button[\s\S]*?min-height:\s*44px/);
   assert.match(participant, /\.participant-search:focus-within[\s\S]*?outline:\s*3px solid var\(--focus-ring\)/);
   assert.match(participant, /\.participant-controls select,[\s\S]*?min-height:\s*44px/);
+  assert.doesNotMatch(aoi, /button\.collect-table-row:hover,\s*button\.collect-table-row:focus-visible\s*{[^}]*outline:\s*none/);
 });
 
 test("tablet administration and mobile content stay internally contained", () => {

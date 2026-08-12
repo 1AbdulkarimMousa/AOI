@@ -19,6 +19,55 @@ export async function loadDashboard() {
   return { ...dashboard.data, ...operations.data, ...pmf.data, ...crm.data, collect: collect.data, gamification: gamification.data };
 }
 
+export async function loadInbox(bucket = "needs_action", projectId = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_inbox_snapshot", {
+    p_bucket: bucket,
+    p_project_id: projectId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function markInboxRead(itemId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_mark_inbox_read", { p_item_id: itemId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function createWorkComment(sourceType, sourceId, body, clientNonce, mentionedUserIds = []) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_create_work_comment", {
+    p_source_type: sourceType,
+    p_source_id: sourceId,
+    p_body: body,
+    p_client_nonce: clientNonce,
+    p_mentioned_user_ids: mentionedUserIds,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function followWorkSource(sourceType, sourceId, follow = true) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_follow_work_source", {
+    p_source_type: sourceType,
+    p_source_id: sourceId,
+    p_follow: follow,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function handoffWork(sourceType, sourceId, toUserId, reason, clientNonce) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_handoff_work", {
+    p_source_type: sourceType,
+    p_source_id: sourceId,
+    p_to_user_id: toUserId,
+    p_reason: reason,
+    p_client_nonce: clientNonce,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function loadDailyEod() {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_daily_eod_snapshot");
   if (error) throw new Error(error.message);
@@ -130,6 +179,18 @@ export async function saveResearchRecord(recordType, payload) {
   return data;
 }
 
+export async function updateResearchRecord(recordType, recordId, payload, expectedUpdatedAt, action) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_update_research_record", {
+    p_record_type: recordType,
+    p_record_id: recordId,
+    p_payload: payload,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_action: action,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function appendConsentVersion(respondentId, payload) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_append_consent_version", {
     p_respondent_id: respondentId,
@@ -139,12 +200,13 @@ export async function appendConsentVersion(respondentId, payload) {
   return data;
 }
 
-export async function reviewResearchRecord(recordType, recordId, action, notes = "") {
+export async function reviewResearchRecord(recordType, recordId, action, notes = "", expectedUpdatedAt = null) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_review_research_record", {
     p_record_type: recordType,
     p_record_id: recordId,
     p_action: action,
     p_notes: notes,
+    p_expected_updated_at: expectedUpdatedAt,
   });
   if (error) throw new Error(error.message);
   return data;
@@ -468,12 +530,30 @@ export async function completeOnboardingStep(stepKey) {
   return data;
 }
 
-export async function updateTaskCheckpoint(taskId, progress, status = null, note = null) {
+export async function loadTaskDetail(taskId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_task_detail", { p_task_id: taskId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function updateTaskCheckpoint(taskId, progress, status = null, note = null, expectedUpdatedAt) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_update_task_checkpoint", {
     p_task_id: taskId,
     p_progress: progress,
     p_status: status,
     p_note: note,
+    p_expected_updated_at: expectedUpdatedAt,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function reviewTask(taskId, action, note, expectedUpdatedAt) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_review_task", {
+    p_task_id: taskId,
+    p_action: action,
+    p_note: note,
+    p_expected_updated_at: expectedUpdatedAt,
   });
   if (error) throw new Error(error.message);
   return data;

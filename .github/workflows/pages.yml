@@ -3,6 +3,8 @@ name: Deploy AOI to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +30,7 @@ jobs:
           enablement: true
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - run: npm run lint
       - run: npm test
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -41,6 +44,7 @@ jobs:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -11,6 +11,7 @@ type AdminUserInput = {
   email?: string;
   password?: string;
   currentPassword?: string;
+  passwordCallback?: "invite" | "signup" | "recovery";
   newPassword?: string;
   resetMode?: "generated" | "custom";
   role?: "admin" | "intern";
@@ -27,6 +28,47 @@ type AdminUserInput = {
   mode?: "merge" | "full_restore";
   previewJobId?: string;
 };
+
+type PasswordProfile = {
+  status?: string | null;
+  must_change_password?: boolean | null;
+};
+
+type PasswordResetTarget = {
+  is_owner?: boolean | null;
+  role?: string | null;
+};
+
+export function hasRecoveryAuthentication(value: unknown) {
+  return Array.isArray(value) && value.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const method = (entry as { method?: unknown }).method;
+    const timestamp = (entry as { timestamp?: unknown }).timestamp;
+    return method === "recovery" && Number.isInteger(timestamp) && Number(timestamp) > 0;
+  });
+}
+
+export function hasPasswordCallbackAuthentication(value: unknown, callback: unknown) {
+  const expectedMethod = callback === "invite" ? "invite" : callback === "signup" ? "email/signup" : null;
+  return Boolean(expectedMethod) && Array.isArray(value) && value.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const method = (entry as { method?: unknown }).method;
+    const timestamp = (entry as { timestamp?: unknown }).timestamp;
+    return method === expectedMethod && Number.isInteger(timestamp) && Number(timestamp) > 0;
+  });
+}
+
+export function canAdministratorResetTarget(callerIsOwner: boolean, target: PasswordResetTarget) {
+  return callerIsOwner || (target.is_owner === false && target.role === "intern");
+}
+
+export function passwordCompletionMode(profile: PasswordProfile | null, recoverySession: boolean, verifiedCallback = false) {
+  if (!profile) return "denied" as const;
+  if (recoverySession && profile.status === "active" && !profile.must_change_password) return "recovery" as const;
+  if (verifiedCallback && profile.status === "invited" && profile.must_change_password) return "invitation" as const;
+  if (profile.must_change_password && ["active", "password_change_required"].includes(String(profile.status))) return "temporary" as const;
+  return "denied" as const;
+}
 
 const configuredOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
   .split(",")
@@ -103,7 +145,7 @@ async function cleanupProvisioning(adminClient: SupabaseClient<any>, organizatio
   return errors;
 }
 
-Deno.serve(async (request) => {
+export async function handleRequest(request: Request) {
   const origin = request.headers.get("Origin") ?? "";
   if (!allowedOrigins.has(origin)) return Response.json({ error: "Origin not allowed." }, { status: 403 });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
@@ -140,11 +182,14 @@ Deno.serve(async (request) => {
   if (action === "complete_password_change") {
     const password = String(body.password || "");
     const currentPassword = String(body.currentPassword || "");
-    const authMethods = Array.isArray(claimData?.claims?.amr) ? claimData.claims.amr as Array<{ method?: string }> : [];
-    const recoverySession = authMethods.some((method) => method?.method === "recovery");
-    if (password.length < 14) return json(origin, 400, { error: "Choose a password with at least 14 characters." });
+    const recoverySession = hasRecoveryAuthentication(claimData?.claims?.amr);
+    if (password.length < 14) return json(origin, 400, { error: "Use at least 14 characters with upper/lower case, a digit, and a symbol." });
     if (!isStrongPassword(password)) return json(origin, 400, { error: "Use at least 14 characters with upper/lower case, a digit, and a symbol." });
-    if (!recoverySession) {
+    const { data: profile } = await adminClient.from("profiles").select("status,must_change_password").eq("id", callerId).maybeSingle();
+    const verifiedCallback = Boolean(body.passwordCallback)
+      && profile?.status === "invited"
+      && profile.must_change_password === true;
+    if (!recoverySession && !verifiedCallback) {
       if (!currentPassword) return json(origin, 400, { error: "Enter your current temporary password." });
       if (currentPassword === password) return json(origin, 400, { error: "Choose a password that differs from your temporary password." });
       const authUser = await adminClient.auth.admin.getUserById(callerId);
@@ -155,10 +200,17 @@ Deno.serve(async (request) => {
       if (reauthenticated.error) return json(origin, 400, { error: "The current temporary password is incorrect." });
       await credentialClient.auth.signOut();
     }
-    const { data: profile } = await adminClient.from("profiles").select("status,must_change_password").eq("id", callerId).maybeSingle();
-    if (!profile?.must_change_password || !["active", "password_change_required"].includes(profile.status)) return json(origin, 409, { error: "This account does not require a password change." });
+    const completionMode = passwordCompletionMode(profile, recoverySession, verifiedCallback);
+    if (completionMode === "denied") return json(origin, 409, { error: "This session cannot change the account password." });
     const updated = await adminClient.auth.admin.updateUserById(callerId, { password });
     if (updated.error) return json(origin, 400, { error: updated.error.message });
+    if (completionMode === "recovery") {
+      const recorded = await userClient.rpc("rpc_record_password_changed_at");
+      if (recorded.error) return json(origin, 500, { error: "Password changed, but the reminder timestamp could not be saved." });
+      const access = await userClient.rpc("rpc_current_user_context");
+      if (access.error || !access.data) return json(origin, 500, { error: "Password changed, but workspace access could not be reloaded." });
+      return json(origin, 200, { access: access.data });
+    }
     const completed = await adminClient.rpc("rpc_complete_password_change", { p_user_id: callerId });
     if (completed.error) return json(origin, 500, { error: "Password changed, but workspace activation must be retried." });
     return json(origin, 200, { access: completed.data });
@@ -189,7 +241,7 @@ Deno.serve(async (request) => {
     const currentPassword = String(body.currentPassword || "");
     const password = String(body.newPassword || "");
     if (!currentPassword) return json(origin, 400, { error: "Enter your current password." });
-    if (password.length < 14) return json(origin, 400, { error: "New passwords must contain at least 14 characters." });
+    if (password.length < 14) return json(origin, 400, { error: "New passwords must contain at least 14 characters with upper/lower case, a digit, and a symbol." });
     if (!isStrongPassword(password)) return json(origin, 400, { error: "Use at least 14 characters with upper/lower case, a digit, and a symbol." });
     if (password === currentPassword) return json(origin, 400, { error: "Choose a new password that differs from your current password." });
 
@@ -225,8 +277,19 @@ Deno.serve(async (request) => {
     if (!normalizeUuid(targetUserId)) return json(origin, 400, { error: "Choose a valid user to reset." });
     if (targetUserId === callerId) return json(origin, 400, { error: "Use Change my password for your own account." });
     if (reason.length < 3) return json(origin, 400, { error: "Record why this password is being reset." });
+    const { data: targetMembership, error: targetMembershipError } = await adminClient
+      .from("organization_memberships")
+      .select("role,is_owner,status")
+      .eq("organization_id", membership.organization_id)
+      .eq("user_id", targetUserId)
+      .maybeSingle();
+    if (targetMembershipError) return json(origin, 500, { error: "Unable to verify the target account's privileges." });
+    if (!targetMembership) return json(origin, 404, { error: "That user does not belong to this organization." });
+    if (!canAdministratorResetTarget(Boolean(membership.is_owner), targetMembership)) {
+      return json(origin, 403, { error: "Only the organization owner can reset an owner or administrator password." });
+    }
     const generatedPassword = resetMode === "generated" ? generateTemporaryPassword() : String(body.password || "");
-    if (generatedPassword.length < 14) return json(origin, 400, { error: "Temporary passwords must contain at least 14 characters." });
+    if (generatedPassword.length < 14) return json(origin, 400, { error: "Temporary passwords must contain at least 14 characters with upper/lower case, a digit, and a symbol." });
     if (!isStrongPassword(generatedPassword)) return json(origin, 400, { error: "Temporary passwords must contain at least 14 characters with upper/lower case, a digit, and a symbol." });
 
     const prepared = await adminClient.rpc("rpc_admin_prepare_password_reset", {
@@ -381,7 +444,7 @@ Deno.serve(async (request) => {
     display_name: displayName,
     login_identifier: email,
     locale: body.locale === "zh-CN" ? "zh-CN" : "en",
-    must_change_password: !invited,
+    must_change_password: true,
     status: initialStatus,
     password_reminder_seeded_at: accessMethod === "temporary_password" ? new Date().toISOString() : null,
   });
@@ -437,4 +500,6 @@ Deno.serve(async (request) => {
     accessMethod,
     ...(accessMethod === "temporary_password" ? { temporaryPassword: generatedPassword } : {}),
   });
-});
+}
+
+if (import.meta.main) Deno.serve(handleRequest);

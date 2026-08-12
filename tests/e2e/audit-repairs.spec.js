@@ -85,6 +85,32 @@ test("mobile survey management has no page-level horizontal overflow", async ({ 
   expect(sidebarState).toEqual({ inert: true, hidden: "true" });
 });
 
+test("role-adaptive Today inbox reflows without horizontal overflow", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=today&tab=briefing");
+  await expect(page.getByRole("heading", { name: /assigned actions|review queues/i })).toBeVisible();
+  const containment = await mobileContainment(page);
+  expect(containment.overflow, JSON.stringify(containment.offenders)).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("navigation", { name: "Work inbox views" })).toBeVisible();
+});
+
+test("Today inbox tolerates AAA text spacing overrides", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=today&tab=briefing");
+  await page.addStyleTag({ content: "* { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; } p { margin-bottom: 2em !important; }" });
+  const containment = await mobileContainment(page);
+  expect(containment.overflow, JSON.stringify(containment.offenders)).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("navigation", { name: "Work inbox views" })).toBeVisible();
+});
+
+async function mobileContainment(page) {
+  return page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    offenders: [...document.querySelectorAll("body *")]
+      .filter((element) => element.getBoundingClientRect().right > document.documentElement.clientWidth + 1)
+      .slice(0, 12)
+      .map((element) => ({ tag: element.tagName, className: element.className, right: Math.round(element.getBoundingClientRect().right), width: Math.round(element.getBoundingClientRect().width) })),
+  }));
+}
+
 test("administration directory remains reachable at tablet width", async ({ page, isMobile }) => {
   test.skip(isMobile, "Tablet contract uses the desktop project.");
   await page.setViewportSize({ width: 1024, height: 768 });

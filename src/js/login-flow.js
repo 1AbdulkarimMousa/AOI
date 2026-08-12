@@ -1,8 +1,15 @@
-export function isPasswordRecoveryUrl(value) {
+const passwordEstablishmentTypes = new Set(["recovery", "invite", "signup"]);
+
+export function passwordEstablishmentType(value) {
   try {
     const url = new URL(String(value), "http://localhost");
-    return url.searchParams.get("type") === "recovery" || new URLSearchParams(url.hash.slice(1)).get("type") === "recovery";
+    const type = url.searchParams.get("type") || new URLSearchParams(url.hash.slice(1)).get("type");
+    return passwordEstablishmentTypes.has(type) ? type : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isPasswordRecoveryUrl(value) {
+  return passwordEstablishmentType(value) === "recovery";
 }

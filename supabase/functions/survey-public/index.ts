@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { decideSurveySubmitReplay, surveyCorsHeaders } from "../_shared/survey-public.js";
 import { validateSurveyPayload } from "../_shared/survey-validation.js";
 
 type SurveyAction = "load" | "start" | "save" | "submit" | "upload";
@@ -34,17 +35,8 @@ const allowedOrigins = new Set([
 
 const allowedUploadTypes = new Set(["application/pdf", "image/jpeg", "image/png", "text/plain", "text/csv"]);
 
-function corsHeaders(origin: string) {
-  return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
-}
-
 function json(origin: string, status: number, payload: Record<string, unknown>) {
-  return Response.json(payload, { status, headers: corsHeaders(origin) });
+  return Response.json(payload, { status, headers: surveyCorsHeaders(origin) });
 }
 
 function safeName(value: string) {
@@ -107,8 +99,8 @@ async function readLimitedJson(request: Request, maximumBytes = 1_048_576) {
 
 Deno.serve(async (request) => {
   const origin = request.headers.get("Origin") ?? "";
-  if (!allowedOrigins.has(origin)) return Response.json({ error: "Origin not allowed." }, { status: 403 });
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
+  if (!allowedOrigins.has(origin)) return Response.json({ error: "Origin not allowed." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: surveyCorsHeaders(origin) });
   if (request.method !== "POST") return json(origin, 405, { error: "Method not allowed." });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -141,11 +133,12 @@ Deno.serve(async (request) => {
       p_token: token,
       p_invitation_token: body.invitationToken || null,
     });
-    if (replay.error) {
-      const error = publicError(replay.error.message);
+    const replayDecision = decideSurveySubmitReplay(replay);
+    if (replayDecision.kind === "error") {
+      const error = publicError(replayDecision.message);
       return json(origin, error.status, { error: error.message, code: error.code });
     }
-    if (replay.data?.replayed) return json(origin, 200, { data: replay.data });
+    if (replayDecision.kind === "response") return json(origin, replayDecision.status, replayDecision.payload);
   }
 
   const loaded = await client.rpc("rpc_aoi_public_survey_load", { p_token: token, p_invitation_token: body.invitationToken || null });
