@@ -250,6 +250,7 @@ test("deploys only the static dist directory to GitHub Pages", async () => {
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.match(workflow, /path:\s*dist/);
   assert.match(workflow, /apt-get install -y postgresql/);
+  assert.match(workflow, /pg_config --bindir.*GITHUB_PATH/);
   assert.match(workflow, /VITE_SUPABASE_URL:\s*\$\{\{ vars\.VITE_SUPABASE_URL \}\}/);
   assert.match(workflow, /VITE_SUPABASE_PUBLISHABLE_KEY:\s*\$\{\{ vars\.VITE_SUPABASE_PUBLISHABLE_KEY \}\}/);
   assert.doesNotMatch(workflow, /SERVICE_ROLE/);

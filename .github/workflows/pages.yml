@@ -29,7 +29,10 @@ jobs:
         with:
           enablement: true
       - name: Install PostgreSQL test tools
-        run: sudo apt-get update && sudo apt-get install -y postgresql
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          pg_config --bindir >> "$GITHUB_PATH"
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run lint
