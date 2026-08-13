@@ -1,8 +1,25 @@
 # AOI Engineering Gauntlet Matrix
 
-Updated: 2026-08-10
+Updated: 2026-08-13
 
 Status values: `confirmed`, `red`, `in progress`, `green`, `blocked`, `intentional`, `rejected`.
+
+August 12-13 implementation note: later timestamped migrations and executable tests supersede several August 10 findings. Historical rows remain below for traceability; the closure registry records the current evidence without implying production deployment.
+
+## Closure Registry
+
+| Domain | Repaired behavior | Repository evidence | Production status |
+| --- | --- | --- | --- |
+| Migrations | Fresh timestamp-ordered migrations execute in disposable PostgreSQL | `tests/helpers/supabase-execution-postgres.mjs`, collaboration and project execution suites | Linked migration history and backup still require operational verification |
+| Surveys | A first public submission continues after an exact replay miss | `tests/survey-public-contract.test.mjs` | Edge Function deployment must be verified separately |
+| Scope | Explicit organization/project selection and isolated project access | `20260812141620_project_operating_core.sql`, `tests/project-operating-core-execution.test.mjs` | Linked database application unverified |
+| Tasks | Exact criteria/hours, administrator review, stale-write protection | `20260812044942_authoritative_task_lifecycle.sql`, task execution/UI tests | Authenticated production smoke pending |
+| Research | Stable-ID draft editing, revision resubmission, and review history | `20260812045706_research_draft_edit_resubmit_history.sql`, research revision tests | Authenticated production smoke pending |
+| Notifications | Durable source-authorized Today inbox replaces fixed notification state | `20260812101805_contextual_work_inbox.sql`, `tests/collaboration-execution.test.mjs` | Linked database application unverified |
+| Projects | Typed project operating core with governed lifecycle and immutable decisions | `20260812141620_project_operating_core.sql`, project execution and browser tests | Linked database application unverified |
+| Collaboration | Project-first comments, mentions, follow/unfollow, revisions, named handoffs, compact Today parity | `20260813011721_project_collaboration_ux_closure.sql`, collaboration domain/execution/Playwright tests | Linked database application unverified |
+| Preview | Touched project collaboration fixtures use fictional names and scenarios | `src/js/projects.js`, `tests/projects-domain.test.mjs` | Other untouched preview fixtures remain an open audit item |
+| Accessibility | Touched collaboration controls have named native inputs, status regions, 44px targets, forced-color rules, and 320px reflow tests | project/inbox templates, `src/css/aoi.css`, project preview Playwright suite | Manual screen-reader, contrast, and forced-color evidence remains required; no platform-wide AAA claim |
 
 | Domain | Requirement | Current behavior / reproduction | Severity | Root cause | Owner | Files affected | Test coverage | Browser coverage | Status | Completion evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -22,7 +39,7 @@ Status values: `confirmed`, `red`, `in progress`, `green`, `blocked`, `intention
 | Research | Revision-requested records can be edited and resubmitted | No editor hydration or resubmit operation | high | Missing update lifecycle | Research batch | Same as draft edit | No lifecycle test | Intern/admin pending | confirmed | Browser/API inventory |
 | Research | Server validates every submitted record | Several required fields are browser-only checks | high | Authoritative validation left in JavaScript | Research/DB batch | New migration, research tests | Browser validation only | API bypass pending | confirmed | Direct RPC invalid payload analysis |
 | PMF | Matrix `n` represents the declared independent unit | Multiple observations from one respondent inflate percentages and sample size | high | Client counts rows, not independent respondents | Research batch | `pmf.js`, metric contract/migration | No repeated-respondent test | Analyze pending | confirmed | 2 rows from A + 1 from B rendered 67%, n=3 |
-| PMF | Sample progress reflects current eligible research | Stored seeded counters never reconcile | high | `sample_plan_items.actual` is disconnected from records | Research batch | Migration, PMF/dashboard | Static seed tests only | Analyze/briefing pending | confirmed | Write paths inventoried |
+| PMF | Sample progress reflects current eligible research | Briefing derives supported actuals from approved, consent-eligible records and labels unsupported mappings | high | Repaired with explicit source kinds and selected-project RPC | Research batch | `20260813090909_today_briefing_repair.sql`, Briefing domain/UI | Disposable PostgreSQL execution coverage | Deployment smoke pending | green | Seed independence, consent, role scope, unsupported mappings verified |
 | Tasks | Assignees see expected hours and exact acceptance criteria | Dashboard omits both and drawer displays generic fixed guidance | medium | Snapshot projection and template omit stored fields | Task batch | Migration, `workspace.js`, template | No content test | Admin/intern pending | confirmed | Payload/template traced |
 | Tasks | Submitted work has admin revise/approve controls | Submitted tasks are locked with no admin action | high | Review states exist without RPC/UI | Task batch | Migration, API, workspace/templates | No lifecycle test | Admin/intern pending | confirmed | No callable control found |
 | Tasks | XP follows explicit verified completion | Intern can self-complete and immediately earn XP | high | Completion trigger rewards assignee transition | Task batch | Migration, workspace, momentum copy | Current tests praise server-recorded state only | Admin/intern pending | confirmed | Transition and trigger traced |
@@ -50,7 +67,7 @@ Status values: `confirmed`, `red`, `in progress`, `green`, `blocked`, `intention
 | Notifications | Bell reflects persisted authorized state | Fixed fake records and read state reset on reload | medium | No notification model/API | Product batch | Migration, workspace/API/template/tests | None | Pending | confirmed | Static entries inspected |
 | Profiles | Peer profile RPC returns only public directory fields | Same-org peer can request phone, bio, timezone, locale | medium | Security-definer RPC returns self-safe profile shape to peers | DB later | New migration/API/tests | Static chat payload test misses RPC | Intern/admin pending | confirmed | RPC projection inspected |
 | Preview | Public preview contains only synthetic anonymous data | Bundles identifiable names, brands, dates, and activity | high | Live-looking fallback fixtures reused as public preview | UI batch | `demo-data.js`, chat/admin/help previews | No PII fixture scan | All preview pages pending | confirmed | Preview bundles inventoried |
-| Responsive | Primary routes reflow at 320 CSS px | Briefing expands to about 732px at 320px | high | Fixed/min-content descendants escape layout | UI batch | CSS/templates | Existing regex containment test false-green | 320px reproduced | red | Browser width matrix |
+| Responsive | Primary routes reflow at 320 CSS px | Today Briefing and collaboration queues remain contained at 320px | high | Repaired min-content and grid containment | UI batch | Briefing CSS/templates | Playwright desktop, 390px, and 320px | Deployment smoke pending | green | Browser width, text spacing, and 44px target matrix passes |
 | Accessibility | 44px targets, visible focus, labels, language, focus restoration | Multiple P1 AA/AAA gaps remain across standalone and workspace surfaces | high | Inconsistent shared component and standalone-page adoption | UI batch | CSS, HTML, templates, dialog flows | Static token checks only | Keyboard/zoom pending | confirmed | Frontend audit score 11/20 |
 | Theming | Every product surface supports complete dark mode | Four standalone surfaces lack complete theme behavior | medium | Theme shell not shared everywhere | UI batch | Standalone HTML/controllers/CSS | Partial E2E only | Dark sessions pending | confirmed | Browser matrix |
 | CI | PR/push gate runs lint, tests, E2E, and backend execution | Pages CI omits lint and backend verification; PRs do not trigger | high | Static deployment workflow only | CI builder | Workflow, package scripts/harness | CI currently false-green | N/A | confirmed | Workflow inspected |

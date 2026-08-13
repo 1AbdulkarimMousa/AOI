@@ -8,6 +8,7 @@ const {
   buildTodayQueue,
   contactCompleteness,
   createContactDraft,
+  nextTabFromKey,
   rewardForAction,
 } = crm;
 
@@ -26,6 +27,7 @@ test("creates a short contact draft with safe defaults", () => {
     nextAction: "",
     nextActionDue: "",
     notes: "",
+    createOutreach: false,
   });
 });
 
@@ -50,6 +52,27 @@ test("puts overdue and due-today contacts before later work", () => {
 
   assert.deepEqual(queue.map((item) => item.id), ["overdue", "today", "later"]);
   assert.equal(queue[0].queueReason, "Overdue");
+});
+
+test("derives needs-action state without mutating contact snapshots", () => {
+  const contacts = [
+    { id: "complete-overdue", name: "Complete overdue", completeness: 100, nextActionDue: "2026-08-03" },
+    { id: "complete-later", name: "Complete later", completeness: 100, nextActionDue: "2026-08-12" },
+  ];
+
+  const queue = buildTodayQueue(contacts, "2026-08-04");
+
+  assert.equal(contacts[0].queueReason, undefined);
+  assert.equal(queue.find((contact) => contact.id === "complete-overdue").queueReason, "Overdue");
+});
+
+test("moves relationship tabs with arrow, Home, and End keys", () => {
+  const tabs = ["contacts", "recruitment", "outreach"];
+  assert.equal(nextTabFromKey(tabs, "contacts", "ArrowRight"), "recruitment");
+  assert.equal(nextTabFromKey(tabs, "contacts", "ArrowLeft"), "outreach");
+  assert.equal(nextTabFromKey(tabs, "recruitment", "Home"), "contacts");
+  assert.equal(nextTabFromKey(tabs, "recruitment", "End"), "outreach");
+  assert.equal(nextTabFromKey(tabs, "contacts", "Enter"), null);
 });
 
 test("rewards verified CRM actions without ranking people", () => {
@@ -91,8 +114,7 @@ test("wires Relationships outreach routing into the workspace controller", async
   assert.match(workspace, /relationshipsTab\s*=\s*route\.relationshipsTab/);
   assert.match(workspace, /outreachSection\s*=\s*route\.outreachSection/);
   assert.match(workspace, /replaceWorkspaceLocation\(replace = false, contactId = ""\)/);
-  assert.match(workspace, /url\.searchParams\.delete\("tab"\)/);
-  assert.match(workspace, /url\.searchParams\.delete\("section"\)/);
+  assert.match(workspace, /\["tab", "section"[\s\S]*url\.searchParams\.delete\(param\)/);
   assert.match(workspace, /openRequestedCrmContact\(contactId\)/);
   assert.equal((workspace.match(/openRequestedCrmContact\(requestedContactId\)/g) || []).length, 2);
   assert.match(workspace, /history\.replaceState/);

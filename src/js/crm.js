@@ -15,6 +15,16 @@ const LEGACY_WORKSPACE_VIEWS = { crm: "relationships", "daily-eod": "eod", "end-
 
 export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
 
+export function nextTabFromKey(tabs, currentTab, key) {
+  const currentIndex = tabs.indexOf(currentTab);
+  if (currentIndex < 0 || !tabs.length) return null;
+  if (key === "Home") return tabs[0];
+  if (key === "End") return tabs.at(-1);
+  if (key === "ArrowRight") return tabs[(currentIndex + 1) % tabs.length];
+  if (key === "ArrowLeft") return tabs[(currentIndex - 1 + tabs.length) % tabs.length];
+  return null;
+}
+
 export function resolveWorkspaceRoute({ view, tab, section, project, milestone, blocker, risk, decision, defaultView = "today", defaultTodayTab = "briefing" } = {}) {
   const defaults = {
     todayTab: TODAY_TABS.has(defaultTodayTab) ? defaultTodayTab : "briefing",
@@ -109,6 +119,7 @@ export function createContactDraft(ownerName = "") {
     nextAction: "",
     nextActionDue: "",
     notes: "",
+    createOutreach: false,
   };
 }
 

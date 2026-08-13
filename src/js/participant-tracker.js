@@ -7,6 +7,17 @@ import { initials, localDateValue, pageUrl, readableError, routeForRole } from "
 
 const STATUS_OPTIONS = ["new", "contacted", "responded", "screening", "scheduled", "completed", "declined", "no_response"];
 
+export const allowedRecruitmentTransitions = Object.freeze({
+  new: ["new", "contacted", "declined"],
+  contacted: ["contacted", "responded", "no_response", "declined"],
+  responded: ["responded", "screening", "declined"],
+  screening: ["screening", "scheduled", "completed", "declined"],
+  scheduled: ["scheduled", "completed", "no_response", "declined"],
+  completed: ["completed"],
+  declined: ["declined"],
+  no_response: ["no_response"],
+});
+
 function blankForm(ownerId = "") {
   return {
     id: "",
@@ -31,9 +42,11 @@ function blankForm(ownerId = "") {
 }
 
 export function registerParticipantTracker(Alpine) {
-  Alpine.data("participantTrackerPage", () => ({
+  Alpine.data("participantTrackerPage", (previewContext = null) => ({
+    previewContext,
+    preview: Boolean(previewContext?.preview),
     access: null,
-    embedded: false,
+    embedded: Boolean(previewContext?.embedded),
     ready: false,
     loading: true,
     saving: false,
@@ -54,6 +67,13 @@ export function registerParticipantTracker(Alpine) {
 
     async init() {
       try {
+        if (this.embedded && this.previewContext) {
+          this.access = this.previewContext.access;
+          this.items = (this.previewContext.items || []).map((item) => ({ ...item }));
+          if (!this.preview) await this.refresh();
+          this.ready = true;
+          return;
+        }
         const access = await getExistingWorkspaceAccess();
         if (!access) {
           location.replace(this.loginUrl);
@@ -62,6 +82,15 @@ export function registerParticipantTracker(Alpine) {
         this.access = access;
         this.crmUrl = pageUrl(import.meta.env.BASE_URL, `${routeForRole(access.role)}?view=relationships&tab=recruitment`);
         await this.refresh();
+        const requestedParticipantId = new URLSearchParams(location.search).get("participant");
+        const requestedParticipant = this.items.find((item) => item.id === requestedParticipantId);
+        if (requestedParticipant) this.openEdit(requestedParticipant);
+        else if (requestedParticipantId) {
+          const url = new URL(location.href);
+          url.searchParams.delete("participant");
+          window.history.replaceState({}, "", url);
+          this.error = "The requested recruitment prospect is unavailable or outside your access.";
+        }
         this.ready = true;
       } catch (reason) {
         this.error = readableError(reason, "Unable to open the participant tracker.");
@@ -71,6 +100,7 @@ export function registerParticipantTracker(Alpine) {
       }
     },
     async refresh() {
+      if (this.preview) return;
       const snapshot = await loadParticipantTracker();
       this.items = snapshot?.items || [];
     },
@@ -86,6 +116,10 @@ export function registerParticipantTracker(Alpine) {
     },
     statusLabel(value) {
       return String(value || "new").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    },
+    availableStatuses(record = this.form) {
+      if (!record?.id) return STATUS_OPTIONS;
+      return allowedRecruitmentTransitions[record.status] || [record.status];
     },
     get filteredItems() {
       const query = this.query.trim().toLowerCase();
@@ -155,8 +189,18 @@ export function registerParticipantTracker(Alpine) {
       this.saving = true;
       this.notice = null;
       try {
-        await saveParticipantRecruitment(this.form);
-        await this.refresh();
+        if (this.preview) {
+          const saved = { ...this.form, id: this.form.id || `preview-participant-${Date.now()}` };
+          this.items = this.items.some((item) => item.id === saved.id)
+            ? this.items.map((item) => item.id === saved.id ? saved : item)
+            : [saved, ...this.items];
+        } else {
+          const payload = { ...this.form };
+          delete payload.crmContactId;
+          delete payload.respondentId;
+          await saveParticipantRecruitment(payload);
+          await this.refresh();
+        }
         this.closeEditor();
         this.notice = { tone: "success", text: "Recruitment record saved." };
       } catch (reason) {
@@ -167,14 +211,25 @@ export function registerParticipantTracker(Alpine) {
     },
     async quickStatus(item, status) {
       try {
-        await saveParticipantRecruitment({ ...item, status });
-        await this.refresh();
+        if (!this.availableStatuses(item).includes(status)) throw new Error("RECRUITMENT_TRANSITION_INVALID");
+        if (this.preview) this.items = this.items.map((record) => record.id === item.id ? { ...record, status } : record);
+        else {
+          const payload = { ...item, status };
+          delete payload.crmContactId;
+          delete payload.respondentId;
+          await saveParticipantRecruitment(payload);
+          await this.refresh();
+        }
         this.notice = { tone: "success", text: `${item.name} moved to ${this.statusLabel(status)}.` };
       } catch (reason) {
         this.notice = { tone: "error", text: readableError(reason, "Unable to update the recruitment stage.") };
       }
     },
     async convertToRespondent(item) {
+      if (this.preview) {
+        this.notice = { tone: "warning", text: "Preview only: respondent conversion is disabled." };
+        return;
+      }
       const readiness = conversionReadiness(item);
       if (!readiness.ready) {
         this.notice = { tone: "error", text: readiness.reasons.join(" ") };

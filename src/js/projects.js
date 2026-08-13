@@ -87,7 +87,7 @@ function normalizeRecord(recordType, record = {}, members = []) {
 }
 
 export function normalizeProjectSnapshot(snapshot = {}) {
-  const members = snapshot.members || [];
+  const members = (snapshot.members || []).map((member) => ({ ...member, updatedAt: member.updatedAt ?? member.updated_at ?? null }));
   const names = memberMap(members);
   const managerId = snapshot.project?.managerId || snapshot.project?.manager_id;
   return {
@@ -99,6 +99,13 @@ export function normalizeProjectSnapshot(snapshot = {}) {
     risks: (snapshot.risks || []).map((record) => normalizeRecord("risk", record, members)),
     decisions: (snapshot.decisions || []).map((record) => normalizeRecord("decision", record, members)),
     activity: (snapshot.activity || []).map((event) => ({ ...event, actorName: event.actorName || names.get(event.actor_id) || "AOI", occurredAt: event.occurredAt || event.created_at })),
+    eligibleOrganizationMembers: (snapshot.eligibleOrganizationMembers || snapshot.eligible_organization_members || []).map((member) => ({
+      userId: member.userId || member.user_id,
+      displayName: member.displayName || member.display_name || "Unavailable member",
+      role: member.role || "member",
+      active: member.active !== false,
+      projectMemberUpdatedAt: member.projectMemberUpdatedAt ?? member.project_member_updated_at ?? null,
+    })),
   };
 }
 
@@ -136,6 +143,7 @@ export function normalizeProjectDetail(recordType, detail = {}, members = []) {
     evidence: { supporting: evidence.filter((item) => item.stance === "supporting"), contradicting: evidence.filter((item) => ["contradicting", "contradictory"].includes(item.stance)) },
     evidenceLinks: evidence.map((item) => ({ evidenceId: item.evidenceId, stance: item.stance === "contradictory" ? "contradicting" : item.stance, relevanceNote: item.relevanceNote })),
     snapshots,
+    collaboration: detail.collaboration || { comments: detail.comments || [], sourceType: recordType, sourceId: record.id },
   };
 }
 
@@ -207,13 +215,28 @@ export function sortProjectRecords(records = [], sort = "dueDate") {
 }
 
 export function scopePreviewProject(role = "admin") {
-  const project = { id: "demo-project", code: "AOI-PMF-01", name: "Ambiloop U.S. PMF Validation", objective: "Turn traceable U.S. research into an explainable product direction.", health: "at_risk", healthLabel: "At risk", status: "active", sponsorName: "HUGE Dental", managerName: "AOI Administrator", plannedStart: "2026-07-13", plannedFinish: "2026-09-25", updatedAt: "2026-08-12T12:00:00Z" };
-  const milestone = { id: "preview-milestone-1", title: "Pilot readiness checkpoint", outcome: "Evidence and operating owners are ready for the home-use pilot.", ownerId: role === "intern" ? "m1" : "preview-admin", ownerName: role === "intern" ? "Kayla Tillmon" : "AOI Administrator", status: "active", plannedDate: "2026-08-21", dueDate: "2026-08-18", progress: 68, acceptanceCriteria: "Recruitment, consent, and product protocol have approved owners.", nextAction: "Close the remaining recruitment blocker.", updatedAt: "2026-08-12T12:00:00Z" };
-  const blocker = { id: "preview-blocker-1", title: "Clinician recruitment is behind plan", description: "Two qualified pediatric dentists remain unconfirmed.", resolutionOwnerId: "m1", ownerId: "m1", ownerName: "Kayla Tillmon", impact: "high", status: "resolving", blockedSince: "2026-08-06", expectedResolutionDate: "2026-08-15", dueDate: "2026-08-15", nextAction: "Use the verified alternate contact routes.", escalated: true, updatedAt: "2026-08-12T12:00:00Z" };
-  const risk = { id: "preview-risk-1", statement: "Pilot feedback may overrepresent highly engaged families.", title: "Engagement sampling bias", ownerId: "m1", ownerName: "Kayla Tillmon", probability: 4, impact: 4, score: 16, trigger: "More than 60% of pilot participants come from the current advocacy cohort.", mitigation: "Recruit through two neutral channels and review the segment mix weekly.", nextAction: "Confirm the neutral-channel sample.", dueDate: "2026-08-16", reviewDate: "2026-08-16", status: "monitoring", updatedAt: "2026-08-12T12:00:00Z" };
+  const project = { id: "demo-project", code: "LANTERN-01", name: "Lantern Trial Workspace", objective: "Coordinate a fictional community event with traceable owners and decisions.", health: "at_risk", healthLabel: "At risk", status: "active", sponsorName: "Northstar Sandbox Cooperative", managerName: "Avery Example", plannedStart: "2026-07-13", plannedFinish: "2026-09-25", updatedAt: "2026-08-12T12:00:00Z" };
+  const milestone = { id: "preview-milestone-1", title: "Event readiness checkpoint", outcome: "Owners, venue, and documentation are ready for the fictional event.", ownerId: role === "intern" ? "m1" : "preview-admin", ownerName: role === "intern" ? "Morgan Example" : "Avery Example", status: "active", plannedDate: "2026-08-21", dueDate: "2026-08-18", progress: 68, acceptanceCriteria: "Venue, schedule, and accessibility review have named owners.", nextAction: "Close the remaining venue blocker.", updatedAt: "2026-08-12T12:00:00Z" };
+  const blocker = { id: "preview-blocker-1", title: "Accessible venue confirmation is late", description: "The fictional venue has not returned its access checklist.", resolutionOwnerId: "m1", ownerId: "m1", ownerName: "Morgan Example", impact: "high", status: "resolving", blockedSince: "2026-08-06", expectedResolutionDate: "2026-08-15", dueDate: "2026-08-15", nextAction: "Confirm the alternate sandbox venue.", escalated: true, updatedAt: "2026-08-12T12:00:00Z" };
+  const risk = { id: "preview-risk-1", statement: "Volunteer feedback may overrepresent experienced coordinators.", title: "Experience sampling bias", ownerId: "m1", ownerName: "Morgan Example", probability: 4, impact: 4, score: 16, trigger: "More than 60% of reviewers have coordinated prior events.", mitigation: "Invite first-time volunteers and review the mix weekly.", nextAction: "Confirm the first-time volunteer sample.", dueDate: "2026-08-16", reviewDate: "2026-08-16", status: "monitoring", updatedAt: "2026-08-12T12:00:00Z" };
   const decision = { id: "preview-decision-1", title: "Keep clinician context in the pilot readout", statement: "Pilot results will pair product findings with explicit clinician-context limitations.", ownerId: "m1", ownerName: "Kayla Tillmon", decisionMakerName: "AOI Administrator", alternatives: "Publish a consumer-only score; delay all reporting until clinician recruitment closes.", rationale: "The current evidence supports learning now, but does not support context-free clinical conclusions.", expectedImpact: "The pilot can proceed without overstating actionability.", status: "submitted", updatedAt: "2026-08-12T12:00:00Z", evidenceLinks: [{ evidenceId: "e1", stance: "supporting", relevanceNote: "Direct family signal" }, { evidenceId: "e2", stance: "contradicting", relevanceNote: "Clinical limitation" }], evidence: { supporting: [{ id: "e1", evidenceId: "e1", title: "Families recognize visible change", provenance: "Approved interview synthesis", limitations: "Recruited caregiver segment", relevanceNote: "Direct family signal" }], contradicting: [{ id: "e2", evidenceId: "e2", title: "Action selection still needs clinician context", provenance: "Approved orthodontic interview", limitations: "One participant", relevanceNote: "Clinical limitation" }] }, snapshots: [{ id: "preview-snapshot-1", version: 1, approved_at: "2026-08-10T12:00:00Z", content: { title: "Keep clinician context in the pilot readout", statement: "Pilot findings retain explicit clinical limitations.", alternatives: ["Publish a consumer-only score"], rationale: "The evidence supports learning without context-free claims.", expectedImpact: "A useful but bounded pilot readout." }, evidence: { supporting: [{ sourceId: "e1", stance: "supporting", title: "Families recognize visible change", provenance: "Approved interview synthesis", limitations: "Recruited caregiver segment" }], contradicting: [{ sourceId: "e2", stance: "contradicting", title: "Action selection still needs clinician context", provenance: "Approved orthodontic interview", limitations: "One participant" }] } }], history: [{ id: "h1", action: "submitted", actorName: "Kayla Tillmon", note: "Ready for governance review." }] };
+  Object.assign(decision, {
+    title: "Keep access context in the event readout",
+    statement: "The fictional event readout will state unresolved accessibility limitations.",
+    ownerName: "Morgan Example",
+    decisionMakerName: "Avery Example",
+    alternatives: "Publish without limitations; delay the fictional readout.",
+    rationale: "The synthetic evidence supports planning while keeping limitations visible.",
+    expectedImpact: "The team can proceed without overstating readiness.",
+    evidence: {
+      supporting: [{ id: "e1", evidenceId: "e1", title: "Main hall route documented", provenance: "Synthetic checklist", limitations: "Preview fixture", relevanceNote: "Venue checklist" }],
+      contradicting: [{ id: "e2", evidenceId: "e2", title: "Side entrance remains unverified", provenance: "Synthetic walkthrough", limitations: "Preview fixture", relevanceNote: "Unresolved access route" }],
+    },
+    snapshots: [],
+    history: [{ id: "h1", actorName: "Avery Example", action: "submit", note: "Ready for governance review", occurredAt: "2026-08-12T12:00:00Z" }],
+  });
   return {
-    context: { organizations: [{ id: "demo-org", name: "HUGE DENTAL USA LLC / AOI Technologics", role, isOwner: role === "admin", projects: [project] }], projects: [project], selectedOrganizationId: "demo-org", selectedProjectId: project.id, role, isOwner: role === "admin", selectionRequired: false, preview: true },
-    snapshot: { project, members: [{ userId: "preview-admin", displayName: "AOI Administrator" }, { userId: "m1", displayName: "Kayla Tillmon" }], milestones: [milestone], blockers: [blocker], risks: [risk], decisions: [decision], activity: [{ id: "pa1", actorName: "Kayla Tillmon", action: "updated risk mitigation", occurredAt: "2026-08-12T11:30:00Z" }], generatedAt: "2026-08-12T12:00:00Z", preview: true },
+    context: { organizations: [{ id: "demo-org", name: "Northstar Sandbox Cooperative", role, isOwner: role === "admin", projects: [project] }], projects: [project], selectedOrganizationId: "demo-org", selectedProjectId: project.id, role, isOwner: role === "admin", selectionRequired: false, preview: true },
+    snapshot: { project, members: [{ userId: "preview-admin", displayName: "Avery Example", role: "admin" }, { userId: "m1", displayName: "Morgan Example", role: "intern" }], eligibleOrganizationMembers: [{ userId: "m2", displayName: "Rowan Example", role: "intern", active: true }], milestones: [milestone], blockers: [blocker], risks: [risk], decisions: [decision], activity: [{ id: "pa1", actorName: "Morgan Example", action: "updated risk mitigation", occurredAt: "2026-08-12T11:30:00Z" }], generatedAt: "2026-08-12T12:00:00Z", preview: true },
   };
 }

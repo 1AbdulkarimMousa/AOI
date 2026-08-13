@@ -19,6 +19,24 @@ export async function loadDashboard() {
   return { ...dashboard.data, ...operations.data, ...pmf.data, ...crm.data, collect: collect.data, gamification: gamification.data };
 }
 
+export async function loadTodayBriefing(projectId = null) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_today_briefing", { p_project_id: projectId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function loadCrmSnapshot() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_crm_snapshot");
+  if (error) throw new Error(error.message);
+  return data || {};
+}
+
+export async function loadOperationsSnapshot() {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_operations_snapshot");
+  if (error) throw new Error(error.message);
+  return data || {};
+}
+
 export async function loadInbox(bucket = "needs_action", projectId = null) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_inbox_snapshot", {
     p_bucket: bucket,
@@ -119,6 +137,20 @@ export async function markInboxRead(itemId) {
   return data;
 }
 
+function collaborationRpcError(error) {
+  const reason = new Error(error?.message || "Collaboration request failed.");
+  reason.code = error?.code;
+  reason.details = error?.details;
+  reason.hint = error?.hint;
+  return reason;
+}
+
+export async function loadInboxItemDetail(itemId) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_inbox_item_detail", { p_item_id: itemId });
+  if (error) throw collaborationRpcError(error);
+  return data;
+}
+
 export async function createWorkComment(sourceType, sourceId, body, clientNonce, mentionedUserIds = []) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_create_work_comment", {
     p_source_type: sourceType,
@@ -127,7 +159,17 @@ export async function createWorkComment(sourceType, sourceId, body, clientNonce,
     p_client_nonce: clientNonce,
     p_mentioned_user_ids: mentionedUserIds,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw collaborationRpcError(error);
+  return data;
+}
+
+export async function reviseWorkComment(commentId, body, changeReason) {
+  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_revise_work_comment", {
+    p_comment_id: commentId,
+    p_body: body,
+    p_change_reason: changeReason,
+  });
+  if (error) throw collaborationRpcError(error);
   return data;
 }
 
@@ -137,7 +179,7 @@ export async function followWorkSource(sourceType, sourceId, follow = true) {
     p_source_id: sourceId,
     p_follow: follow,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw collaborationRpcError(error);
   return data;
 }
 
@@ -149,7 +191,7 @@ export async function handoffWork(sourceType, sourceId, toUserId, reason, client
     p_reason: reason,
     p_client_nonce: clientNonce,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw collaborationRpcError(error);
   return data;
 }
 

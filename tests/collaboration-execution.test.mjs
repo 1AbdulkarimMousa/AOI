@@ -59,6 +59,7 @@ test('durable contextual inbox executes with source-scoped collaboration', { tim
       'public.rpc_aoi_revise_work_comment(uuid,text,text)',
       'public.rpc_aoi_follow_work_source(text,uuid,boolean)',
       'public.rpc_aoi_handoff_work(text,uuid,uuid,text,uuid)',
+      'public.rpc_aoi_inbox_item_detail(uuid)',
     ]) {
       assert.equal(database.query(`
         select has_function_privilege('authenticated', '${signature}', 'execute')
@@ -144,6 +145,13 @@ test('durable contextual inbox executes with source-scoped collaboration', { tim
     assert.equal(database.query(`
       select jsonb_array_length(public.rpc_aoi_inbox_snapshot('following', '${projectId}')->'items')
     `, authenticated(internId)), '1');
+    assert.equal(database.query(`
+      select public.rpc_aoi_follow_work_source('task', '${taskId}', false)->>'following'
+    `, authenticated(internId)), 'false');
+    assert.equal(database.query(`
+      select not active from public.work_followers
+      where source_type = 'task' and source_id = '${taskId}' and follower_id = '${internId}'
+    `, authenticated(internId)), 't');
 
     const handoffId = database.query(`
       select public.rpc_aoi_handoff_work(
@@ -165,6 +173,13 @@ test('durable contextual inbox executes with source-scoped collaboration', { tim
       where recipient_id = '${internId}' and dedupe_key = 'handoff:${handoffId}'
     `, authenticated(internId));
     assert.match(handoffItemId, /^[0-9a-f-]{36}$/);
+    assert.equal(database.query(`
+      select payload->>'sourceId' = '${taskId}'
+        and payload->'collaboration'->>'commentCount' = '1'
+        and payload->'collaboration'->'comments'->0->>'authorName' = 'Migration Test Admin'
+        and jsonb_array_length(payload->'collaboration'->'eligibleCollaborators') >= 1
+      from (select public.rpc_aoi_inbox_item_detail('${handoffItemId}') payload) detail
+    `, authenticated(internId)), 't');
     assert.equal(database.query(`
       select public.rpc_aoi_mark_inbox_read('${handoffItemId}')->>'readAt' is not null
     `, authenticated(internId)), 't');

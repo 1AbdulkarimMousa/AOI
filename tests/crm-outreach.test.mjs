@@ -20,10 +20,15 @@ test("consolidates the complete Outreach suite under Relationships", async () =>
   assert.match(crmTemplate, /role="tablist"/);
   assert.match(crmTemplate, /role="tab"/);
   assert.match(crmTemplate, /:aria-selected="relationshipsTab==='outreach'"/);
+  assert.match(crmTemplate, /aria-controls="relationships-panel-contacts"/);
+  assert.match(crmTemplate, /role="tabpanel"/);
+  assert.match(crmTemplate, /@keydown="onRelationshipsTabKeydown/);
 
   assert.match(outreachTemplate, /setOutreachSection\('pipeline'\)/);
   assert.match(outreachTemplate, /setOutreachSection\('evidence'\)/);
   assert.match(outreachTemplate, /setOutreachSection\('imports'\)/);
+  assert.match(outreachTemplate, /aria-controls="outreach-panel-pipeline"/);
+  assert.match(outreachTemplate, /@keydown="onOutreachTabKeydown/);
   assert.match(outreachTemplate, /KOL outreach command center/);
   assert.match(outreachTemplate, /Candidate pipeline/);
   assert.match(outreachTemplate, /Evidence & consent ledger/);
@@ -37,6 +42,10 @@ test("consolidates the complete Outreach suite under Relationships", async () =>
   assert.doesNotMatch(workspaceTemplate, /workbookImportTemplate/);
   assert.doesNotMatch(importTemplate, /view==='imports'/);
   assert.match(workspaceTemplate, /candidateEditorOpen/);
+
+  const { outreachTemplate: renderedOutreach } = await import(new URL("src/js/outreach-template.js", root));
+  assert.equal(renderedOutreach.match(/id="outreach-panel-imports"/g)?.length, 1);
+  assert.match(renderedOutreach, /id="outreach-panel-imports"[\s\S]*workbook-import-panel/);
 });
 
 test("opens candidate and evidence actions in Relationships Outreach Pipeline", async () => {
@@ -57,8 +66,7 @@ test("mounts Recruitment on demand and preserves it after tab changes", async ()
     readFile(new URL("src/js/workspace.js", root), "utf8"),
   ]);
 
-  assert.match(crmTemplate, /<template x-if="recruitmentMounted">/);
-  assert.match(crmTemplate, /<section x-show="relationshipsTab==='recruitment'"/);
+  assert.match(crmTemplate, /<section x-show="relationshipsTab==='recruitment'"[\s\S]*<template x-if="recruitmentMounted">/);
   assert.match(workspace, /recruitmentMounted:\s*false/);
   assert.match(workspace, /route\.relationshipsTab === "recruitment"/);
 });

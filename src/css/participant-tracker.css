@@ -105,7 +105,7 @@
 .participant-embedded-actions { display: flex; align-items: center; gap: .75rem; flex: 0 0 auto; }
 .participant-embedded-shell .participant-stats { margin-bottom: 1rem; }
 .participant-embedded-shell .participant-note { margin-bottom: 0; }
-.crm-local-tabs { display: flex; align-items: center; gap: .35rem; margin: 1.25rem 0; border-bottom: 1px solid var(--line); }
+.crm-local-tabs { display: flex; align-items: center; gap: .35rem; max-width: 100%; margin: 1.25rem 0; overflow-x: auto; border-bottom: 1px solid var(--line); }
 .crm-local-tabs button { min-height: 44px; border: 0; border-bottom: 1px solid transparent; padding: .7rem .85rem; background: transparent; color: var(--ink-soft); font: inherit; font-weight: 700; cursor: pointer; }
 .crm-local-tabs button:hover, .crm-local-tabs button:focus-visible { color: var(--ink); }
 .crm-local-tabs button.active { border-bottom-color: var(--orange); color: var(--ink); }

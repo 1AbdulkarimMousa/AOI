@@ -4,21 +4,22 @@ import {
   adminUpdateDailyEodBrief,
   appendConsentVersion,
   createGateSnapshot,
-  createWorkComment,
   completeOnboardingStep,
   importCandidates,
-  followWorkSource,
-  handoffWork,
   logCrmActivity,
   loadDailyEod,
   loadDailyEodReports,
   loadDashboard,
+  loadCrmSnapshot,
   loadInbox,
+  loadInboxItemDetail,
+  loadOperationsSnapshot,
   loadCollectRecordDetail,
   loadProjectContext,
   loadProjectRecordDetail,
   loadProjectSnapshot,
   loadTaskDetail,
+  loadTodayBriefing,
   markInboxRead,
   logOutreach,
   reviewTask,
@@ -39,20 +40,22 @@ import {
 } from "./api.js";
 import { changePassword, getExistingWorkspaceAccess, signOut } from "./auth.js";
 import { clamp, csvCell, initials, isSafeHttpUrl, localDateValue, pageUrl, readableError, routeForRole, safeHttpUrl, scopePreviewDashboard } from "./core.js";
-import { fallbackDashboard } from "./demo-data.js";
+import { emptyDashboard, fallbackDashboard } from "./demo-data.js";
 import { translate, translateData } from "./i18n.js";
 import { buildCandidateExport, buildRecommendations, parseCandidateFile } from "./operations.js";
 import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues, validateResearchRecord } from "./pmf.js";
 import { shouldConfirmSurveyRoute } from "./surveys/analysis.js";
-import { buildTodayQueue, contactCompleteness, createContactDraft, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
+import { buildTodayQueue, contactCompleteness, createContactDraft, nextTabFromKey, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, hydrateResearchRevisionForm, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
 import { createDailyEodDraft, createDailyEodDraftKey, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, isLegacyEvidenceException, readDailyEodDraft, toggleExecutiveOwner, validateDailyEodBrief, validateDailyEodFields, writeDailyEodDraft } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 import { createChatState } from "./chat.js";
 import { createProfileState } from "./profile.js";
+import { createCollaborationState } from "./collaboration.js";
 import { createInboxState, inboxBucketLabel, inboxCount as countInboxBucket, inboxRoleCopy, projectSourceLabel, unreadInboxCount } from "./inbox.js";
 import { activeProjectAccess, createProjectRecordDraft, ensureProjectMutationNonce, filterProjectRecords, hydrateProjectRecordDraft as buildProjectRecordDraft, isProjectRecordEditable, mergeProjectSelection, normalizeProjectDetail, normalizeProjectSnapshot, projectRecordActions, projectTabNavigation, riskScorePresentation, scopePreviewProject, serializeProjectRecord, sortProjectRecords } from "./projects.js";
+import { briefingProgress, briefingRoleCopy, briefingSampleDestination, briefingSourceDestination, createBriefingState, createPreviewBriefing } from "./briefing.js";
 
 function today() {
   return localDateValue();
@@ -112,16 +115,23 @@ export function registerWorkspace(Alpine) {
     ...createSurveyWorkspaceState(),
     ...createChatState(),
     ...createProfileState(),
+    ...createCollaborationState(),
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     administrationUrl: pageUrl(import.meta.env.BASE_URL, "administration.html"),
     helpCenterUrl: pageUrl(import.meta.env.BASE_URL, "helpcenter.html"),
      participantTrackerUrl: pageUrl(import.meta.env.BASE_URL, "Participant_Recruitment_Tracker.html"),
     access: null,
-    data: fallbackDashboard,
+    data: emptyDashboard(),
     ready: false,
     loading: true,
     dashboardRefreshSequence: 0,
+    briefingRefreshSequence: 0,
+    briefingState: createBriefingState(),
+    briefingLoading: true,
+    briefingError: "",
+    briefingStale: false,
+    briefingPreviewMode: false,
     preview: false,
     error: "",
     view: "today",
@@ -168,15 +178,14 @@ export function registerWorkspace(Alpine) {
     inboxReturnFocus: null,
     inboxLoading: false,
     inboxNotice: null,
-    inboxComment: "",
-    inboxCommentNonce: null,
-    inboxHandoff: { toUserId: "", reason: "", nonce: null },
-    inboxMutation: false,
+    inboxDetailRequest: 0,
+    previewCollaboration: {},
     query: "",
     taskFilter: "all",
     selectedTask: null,
     taskDetailRequest: 0,
     loadingTaskDetail: false,
+    taskDetailReady: false,
     taskCheckpointForm: { progress: 0, status: "assigned", note: "" },
     taskReviewForm: { note: "" },
     taskCheckpointNotice: null,
@@ -228,7 +237,7 @@ export function registerWorkspace(Alpine) {
       attachmentForm: { respondentId: "", sessionId: "", bucketId: "aoi-sources" },
       consentForm: { respondentId: "", status: "granted", interviewAllowed: true, recordingAllowed: false, imagesAllowed: false, quotationAllowed: false, recontactAllowed: false, withdrawalReason: "" },
       uploadingAttachment: false,
-     candidateForm: { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" },
+       candidateForm: { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, pmfRationale: "", priorityScore: 50, priorityBand: "Medium", ownerId: "", ownerName: "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" },
      outreachForm: { channel: "Email", kind: "Initial", status: "Drafted", summary: "" },
      evidenceForm: { type: "PMF interview", stance: "supporting", strength: 3, title: "", notes: "", consentStatus: "pending" },
     toast: null,
@@ -299,7 +308,7 @@ export function registerWorkspace(Alpine) {
         this.setupRouteHistory();
 
       if (new URLSearchParams(location.search).get("preview") === "1") {
-        const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
+        const previewName = this.expectedRole === "admin" ? "Avery Example" : "Morgan Example";
          this.access = {
           userId: this.expectedRole === "admin" ? "preview-admin" : "m1",
           role: this.expectedRole,
@@ -307,12 +316,31 @@ export function registerWorkspace(Alpine) {
           organizationName: fallbackDashboard.organization.name,
           locale: this.locale,
         };
-         this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
+          this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
+          this.briefingState = createPreviewBriefing(fallbackDashboard, this.expectedRole, previewName);
+          this.briefingLoading = false;
+          this.briefingPreviewMode = true;
          const previewProject = scopePreviewProject(this.expectedRole);
-         this.projectContext = previewProject.context;
+          this.data = { ...this.data, project: { ...this.data.project, ...previewProject.snapshot.project } };
+          this.briefingState = { ...this.briefingState, project: previewProject.snapshot.project };
+          this.projectContext = previewProject.context;
          this.projectSnapshot = normalizeProjectSnapshot(previewProject.snapshot);
-         this.access.projectId = previewProject.context.selectedProjectId;
-         this.access.organizationId = previewProject.context.selectedOrganizationId;
+          this.previewCollaboration = Object.fromEntries([...(this.projectSnapshot.milestones || []), ...(this.projectSnapshot.blockers || []), ...(this.projectSnapshot.risks || []), ...(this.projectSnapshot.decisions || [])].map((record) => {
+            const sourceType = record.id.includes("milestone") ? "milestone" : record.id.includes("blocker") ? "blocker" : record.id.includes("risk") ? "risk" : "decision";
+            return [`${sourceType}:${record.id}`, {
+              sourceType, sourceId: record.id, projectId: previewProject.context.selectedProjectId, isFollowing: sourceType === "decision", eligibleCollaborators: this.projectSnapshot.members,
+              comments: sourceType === "decision" ? [
+                { id: "preview-comment-1", body: "The synthetic checklist supports proceeding, with the access limitation kept visible.", authorId: "preview-admin", authorName: "Avery Example", authorRole: "admin", createdAt: "2026-08-12T10:00:00Z", revisionCount: 1, canRevise: this.expectedRole === "admin", revisions: [] },
+                { id: "preview-comment-2", body: "I added the unresolved route to the next-action list.", authorId: "m1", authorName: "Morgan Example", authorRole: "intern", createdAt: "2026-08-12T11:00:00Z", editedAt: "2026-08-12T11:10:00Z", revisionCount: 2, canRevise: this.expectedRole === "intern", revisions: [{ revision: 1, body: "I added the route to the list.", editorName: "Morgan Example", createdAt: "2026-08-12T11:00:00Z" }] },
+              ] : [],
+            }];
+          }));
+          for (const [sourceType, records] of [["milestone", this.projectSnapshot.milestones], ["blocker", this.projectSnapshot.blockers], ["risk", this.projectSnapshot.risks], ["decision", this.projectSnapshot.decisions]]) {
+            for (const record of records || []) record.collaboration = this.previewCollaboration[`${sourceType}:${record.id}`];
+          }
+          this.access.projectId = previewProject.context.selectedProjectId;
+          this.access.organizationId = previewProject.context.selectedOrganizationId;
+          this.access.organizationName = previewProject.context.organizations[0]?.name || this.access.organizationName;
          this.preview = true;
          this.inbox = createInboxState({
            projectId: previewProject.context.selectedProjectId,
@@ -357,7 +385,7 @@ export function registerWorkspace(Alpine) {
         document.documentElement.lang = this.locale;
          this.ready = true;
          await this.refreshProjectContext(route.projectId);
-         await this.refreshDashboard();
+          await Promise.all([this.refreshBriefing(), this.refreshDashboard()]);
         if (this.isSurveyWorkspaceActive) await this.openSurveyWorkspace();
         this.openRequestedCrmContact(requestedContactId);
         if (requestedTaskId) this.openRequestedTask(requestedTaskId);
@@ -401,6 +429,15 @@ export function registerWorkspace(Alpine) {
       const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
       return Number.isNaN(parsed.getTime()) ? "Invalid date" : new Intl.DateTimeFormat(this.locale, { month: "short", day: "numeric" }).format(parsed);
     },
+    formatBriefingTimestamp(value, timezone = "UTC") {
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "Invalid time";
+      try {
+        return new Intl.DateTimeFormat(this.locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: timezone, timeZoneName: "short" }).format(parsed);
+      } catch {
+        return new Intl.DateTimeFormat(this.locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" }).format(parsed);
+      }
+    },
     formatDailyEodTimestamp(value) {
       return formatDailyEodTimestamp(value, this.locale, this.dailyEod.timezone || "UTC");
     },
@@ -426,9 +463,36 @@ export function registerWorkspace(Alpine) {
     get inboxUnread() { return unreadInboxCount(this.inbox); },
     inboxCount(bucket) { return countInboxBucket(this.inbox, bucket); },
     get canUpdateSelectedTask() {
-      return this.access?.role === "intern" && this.selectedTask && !["submitted", "approved", "completed", "cancelled"].includes(this.selectedTask.status);
+      return this.taskDetailReady && this.access?.role === "intern" && this.selectedTask && !["submitted", "approved", "completed", "cancelled"].includes(this.selectedTask.status);
     },
     get focusTasks() { return this.data.tasks.filter((task) => ["submitted", "revision_requested", "blocked"].includes(task.status)).slice(0, 3); },
+    get briefingCopy() {
+      if (!this.briefingState.generatedAt) return {
+        eyebrow: this.access?.role === "admin" ? "Administrator briefing" : "Your briefing",
+        heading: this.briefingLoading ? "Loading authorized project facts" : "Briefing facts are unavailable",
+        body: this.briefingLoading ? "AOI is deriving the current action queue from maintained source records." : "Retry the live projection. No preview or zero-value claim has been substituted.",
+      };
+      return briefingRoleCopy(this.access?.role || this.expectedRole, this.briefingState.summary, this.briefingState.summary.attentionCount);
+    },
+    briefingProgress,
+    briefingSourceLabel(sourceType) { return projectSourceLabel(sourceType).replace(/^./, (letter) => letter.toUpperCase()); },
+    openBriefingCategory(category) {
+      const item = this.briefingState.attention.find((entry) => entry.category === category || (category === "overdue" && entry.sourceType === "task" && entry.dueOn));
+      if (item) return this.openBriefingItem(item);
+      this.showToast("No matching source", "No authorized record is available in this category.");
+      return false;
+    },
+    async openBriefingSample(item) {
+      const destination = briefingSampleDestination(item);
+      if (!destination) return false;
+      await this.setResearchTab(destination.tab);
+      if (destination.assetId) {
+        await this.openSurveyWorkspace();
+        const asset = (this.surveyLibrary.assets || []).find((entry) => entry.id === destination.assetId);
+        if (asset) await this.openSurveyAsset(asset);
+      }
+      return true;
+    },
     get dailyEod() { return this.data.dailyEod || {}; },
     get dailyEodMembers() { return this.dailyEod.members || []; },
     get dailyEodUserId() { return this.preview ? (this.expectedRole === "admin" ? "preview-admin" : "m1") : this.access?.userId; },
@@ -521,6 +585,23 @@ export function registerWorkspace(Alpine) {
         followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= today()).length,
       };
     },
+    get relationshipOwners() {
+      const members = this.projectSnapshot?.members || this.dailyEodMembers || [];
+      return members.map((member) => ({
+        userId: member.userId || member.user_id,
+        displayName: member.displayName || member.display_name,
+        role: member.role || "member",
+      })).filter((member) => member.userId && member.displayName);
+    },
+    candidateEvents(candidateId = this.selectedCandidate?.id) {
+      return (this.data.outreachEvents || []).filter((event) => event.candidateId === candidateId);
+    },
+    candidateEvidence(candidateId = this.selectedCandidate?.id) {
+      return (this.data.evidenceRecords || []).filter((record) => record.candidateId === candidateId);
+    },
+    crmContactActivities(contactId = this.selectedCrmContact?.id) {
+      return (this.data.crmActivity || []).filter((activity) => activity.contactId === contactId);
+    },
     get researchRespondents() { return this.data.collect?.respondents || this.data.respondents || []; },
     get collectRecords() { return buildCollectIndex(this.data.collect || this.data); },
     get filteredCollectRecords() {
@@ -600,6 +681,11 @@ export function registerWorkspace(Alpine) {
       this.projectTab = route.projectTab;
       if (route.relationshipsTab === "recruitment") this.recruitmentMounted = true;
     },
+    remountRecruitment() {
+      if (!this.recruitmentMounted) return;
+      this.recruitmentMounted = false;
+      this.$nextTick(() => { this.recruitmentMounted = true; });
+    },
 
     async setView(view) {
       const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : view === "projects" ? this.projectTab : null;
@@ -635,6 +721,13 @@ export function registerWorkspace(Alpine) {
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab, section: tab === "outreach" ? this.outreachSection : null }));
       this.replaceWorkspaceLocation();
     },
+    async onRelationshipsTabKeydown(event, currentTab) {
+      const tab = nextTabFromKey(["contacts", "recruitment", "outreach"], currentTab, event.key);
+      if (!tab) return;
+      event.preventDefault();
+      await this.setRelationshipsTab(tab);
+      this.$nextTick(() => document.getElementById(`relationships-tab-${tab}`)?.focus());
+    },
     async setResearchTab(tab) {
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, tab === "surveys", this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "research", tab }));
@@ -645,6 +738,13 @@ export function registerWorkspace(Alpine) {
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, false, this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
       this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "relationships", tab: "outreach", section }));
       this.replaceWorkspaceLocation();
+    },
+    async onOutreachTabKeydown(event, currentTab) {
+      const section = nextTabFromKey(["pipeline", "evidence", "imports"], currentTab, event.key);
+      if (!section) return;
+      event.preventDefault();
+      await this.setOutreachSection(section);
+      this.$nextTick(() => document.getElementById(`outreach-tab-${section}`)?.focus());
     },
     async setProjectTab(tab) {
       if (!await this.confirmProjectNavigation()) return false;
@@ -666,8 +766,7 @@ export function registerWorkspace(Alpine) {
     writeWorkspaceLocation(replace = false, contactId = "") {
       const url = new URL(location.href);
       url.searchParams.set("view", this.view);
-      url.searchParams.delete("tab");
-      url.searchParams.delete("section");
+      for (const param of ["tab", "section", "task", "type", "id", "contact", "participant", "response", "version", "layer"]) url.searchParams.delete(param);
       if (this.view === "today") url.searchParams.set("tab", this.todayTab);
       if (this.view === "relationships") {
         url.searchParams.set("tab", this.relationshipsTab);
@@ -680,7 +779,6 @@ export function registerWorkspace(Alpine) {
         if (this.projectSwitcherValue) url.searchParams.set("project", this.projectSwitcherValue);
         if (this.selectedProjectRecord?.id && this.projectRecordType) url.searchParams.set(this.projectRecordType, this.selectedProjectRecord.id);
       }
-      url.searchParams.delete("contact");
       if (this.view === "relationships" && this.relationshipsTab === "contacts" && contactId) url.searchParams.set("contact", contactId);
       if (replace) window.history.replaceState({}, "", url);
       else window.history.pushState({}, "", url);
@@ -693,6 +791,10 @@ export function registerWorkspace(Alpine) {
       const params = new URLSearchParams(location.search);
       const route = resolveWorkspaceRoute({ view: params.get("view"), tab: params.get("tab"), section: params.get("section"), project: params.get("project"), milestone: params.get("milestone"), blocker: params.get("blocker"), risk: params.get("risk"), decision: params.get("decision"), defaultView: "today", defaultTodayTab: this.expectedRole === "intern" ? "relationships" : "briefing" });
       if (!await this.confirmProjectNavigation()) {
+        this.replaceWorkspaceLocation(true);
+        return false;
+      }
+      if (this.view === "eod" && route.view !== "eod" && !this.confirmDailyEodNavigation()) {
         this.replaceWorkspaceLocation(true);
         return false;
       }
@@ -744,16 +846,27 @@ export function registerWorkspace(Alpine) {
       }
     },
     async setInboxBucket(bucket) {
+      this.closeCollaborationSource();
       this.selectedInboxItem = null;
       await this.refreshInbox(bucket);
     },
     async openInboxItem(item) {
       this.inboxReturnFocus = document.activeElement;
       this.selectedInboxItem = { ...item };
+      const request = ++this.inboxDetailRequest;
       this.$nextTick(() => document.querySelector(".inbox-detail")?.focus?.());
+      try {
+        const detail = this.preview ? this.previewInboxItemDetail(item) : await loadInboxItemDetail(item.id);
+        if (request !== this.inboxDetailRequest || this.selectedInboxItem?.id !== item.id) return;
+        this.selectedInboxItem = { ...this.selectedInboxItem, ...detail };
+        this.openCollaborationSource(detail.collaboration, { surface: "today", density: "compact", inboxItemId: item.id });
+      } catch (reason) {
+        this.inboxNotice = { tone: "error", text: readableError(reason, "The selected inbox detail is unavailable.") };
+      }
       if (!item.readAt && !this.preview) {
         try {
           const saved = await markInboxRead(item.id);
+          if (request !== this.inboxDetailRequest || this.selectedInboxItem?.id !== item.id) return;
           this.selectedInboxItem.readAt = saved.readAt;
           this.inbox.items = this.inbox.items.map((entry) => entry.id === item.id ? { ...entry, readAt: saved.readAt } : entry);
         } catch (reason) {
@@ -762,6 +875,8 @@ export function registerWorkspace(Alpine) {
       }
     },
     closeInboxItem() {
+      this.inboxDetailRequest += 1;
+      this.closeCollaborationSource();
       this.selectedInboxItem = null;
       const focus = this.inboxReturnFocus;
       this.$nextTick(() => focus?.focus?.());
@@ -778,8 +893,8 @@ export function registerWorkspace(Alpine) {
         if (item.projectId && item.projectId !== this.projectSwitcherValue && !await this.changeProject(item.projectId, { updateHistory: false })) return;
         this.applyWorkspaceRoute(resolveWorkspaceRoute({ view: "projects", tab, project: item.projectId || this.projectSwitcherValue, [recordType]: item.sourceId }));
         this.replaceWorkspaceLocation();
-        this.openRequestedProjectRecord(recordType, item.sourceId);
         this.closeInboxItem();
+        await this.openRequestedProjectRecord(recordType, item.sourceId);
       } else {
         const record = this.collectRecords.find((entry) => entry.id === item.sourceId && entry.recordType === item.sourceType);
         if (record) {
@@ -860,8 +975,23 @@ export function registerWorkspace(Alpine) {
       try {
         if (this.preview) {
           const previewProject = scopePreviewProject(this.expectedRole);
+          this.data = { ...this.data, project: { ...this.data.project, ...previewProject.snapshot.project } };
+          this.briefingState = { ...this.briefingState, project: previewProject.snapshot.project };
           this.projectContext = previewProject.context;
           this.projectSnapshot = normalizeProjectSnapshot(previewProject.snapshot);
+          this.previewCollaboration = Object.fromEntries([...(this.projectSnapshot.milestones || []), ...(this.projectSnapshot.blockers || []), ...(this.projectSnapshot.risks || []), ...(this.projectSnapshot.decisions || [])].map((record) => {
+            const sourceType = record.id.includes("milestone") ? "milestone" : record.id.includes("blocker") ? "blocker" : record.id.includes("risk") ? "risk" : "decision";
+            return [`${sourceType}:${record.id}`, {
+              sourceType, sourceId: record.id, projectId: previewProject.context.selectedProjectId, isFollowing: sourceType === "decision", eligibleCollaborators: this.projectSnapshot.members,
+              comments: sourceType === "decision" ? [
+                { id: "preview-comment-1", body: "The synthetic checklist supports proceeding, with the access limitation kept visible.", authorId: "preview-admin", authorName: "Avery Example", authorRole: "admin", createdAt: "2026-08-12T10:00:00Z", revisionCount: 1, canRevise: this.expectedRole === "admin", revisions: [] },
+                { id: "preview-comment-2", body: "I added the unresolved route to the next-action list.", authorId: "m1", authorName: "Morgan Example", authorRole: "intern", createdAt: "2026-08-12T11:00:00Z", editedAt: "2026-08-12T11:10:00Z", revisionCount: 2, canRevise: this.expectedRole === "intern", revisions: [{ revision: 1, body: "I added the route to the list.", editorName: "Morgan Example", createdAt: "2026-08-12T11:00:00Z" }] },
+              ] : [],
+            }];
+          }));
+          for (const [sourceType, records] of [["milestone", this.projectSnapshot.milestones], ["blocker", this.projectSnapshot.blockers], ["risk", this.projectSnapshot.risks], ["decision", this.projectSnapshot.decisions]]) {
+            for (const record of records || []) record.collaboration = this.previewCollaboration[`${sourceType}:${record.id}`];
+          }
         } else {
           const selection = await selectProjectContext(projectId);
           this.projectContext = mergeProjectSelection(this.projectContext, selection);
@@ -873,11 +1003,12 @@ export function registerWorkspace(Alpine) {
           this.dailyEodReportsLoaded = false;
           this.dailyEodState = "loading";
           this.data.dailyEod = {};
-          const refreshes = await Promise.allSettled([this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectContext.selectedProjectId), this.refreshDailyEod(), this.searchDailyEodReports(1)]);
+          const refreshes = await Promise.allSettled([this.refreshBriefing(this.projectContext.selectedProjectId), this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectContext.selectedProjectId), this.refreshDailyEod(), this.searchDailyEodReports(1)]);
           if (refreshes.some((result) => result.status === "rejected" || result.value === false)) {
             this.projectReconciliationWarning = "Project selected. Some workspace data could not be refreshed; retry reconciliation without changing context.";
           }
         }
+        this.remountRecruitment();
         if (this.preview && updateHistory) this.replaceWorkspaceLocation();
         return true;
       } catch (reason) {
@@ -890,7 +1021,7 @@ export function registerWorkspace(Alpine) {
     async reconcileSelectedProject() {
       if (!this.projectSwitcherValue) return this.refreshProjectContext();
       this.projectLoading = true;
-      const refreshes = await Promise.all([this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectSwitcherValue)]);
+      const refreshes = await Promise.all([this.refreshBriefing(this.projectSwitcherValue), this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectSwitcherValue)]);
       const reconciled = refreshes.every((result) => result !== false);
       this.projectReconciliationWarning = reconciled ? "" : "Project selected. Some workspace data still needs reconciliation.";
       this.projectLoading = false;
@@ -960,11 +1091,15 @@ export function registerWorkspace(Alpine) {
       if (!this.activeProject?.id || this.projectSaving || this.activeProjectRole !== "admin") return;
       this.projectSaving = true;
       try {
-        if (!this.preview) await persistProjectMember(this.activeProject.id, member.userId, member.active !== false, member.responsibility || "", member.updatedAt || null);
+        const eligible = this.projectSnapshot.eligibleOrganizationMembers.find((item) => item.userId === member.userId);
+        const expectedUpdatedAt = member.updatedAt || eligible?.projectMemberUpdatedAt || null;
+        if (!this.preview) await persistProjectMember(this.activeProject.id, member.userId, member.active !== false, member.responsibility || "", expectedUpdatedAt);
         else {
           const existing = this.projectSnapshot.members.find((item) => (item.userId || item.user_id) === member.userId);
           if (existing) Object.assign(existing, member);
-          else this.projectSnapshot.members.push({ ...member, displayName: member.displayName || member.userId });
+          else {
+            this.projectSnapshot.members.push({ ...member, displayName: eligible?.displayName || "Unavailable member", role: eligible?.role || "member" });
+          }
         }
         this.projectMemberDraft = { userId: "", active: true, responsibility: "" };
         if (!this.preview) await this.refreshProjectSnapshot();
@@ -1012,7 +1147,12 @@ export function registerWorkspace(Alpine) {
       this.hydrateProjectRecordDraft(record);
       if (updateHistory) this.replaceWorkspaceLocation();
       this.$nextTick(() => document.querySelector(".project-detail-pane")?.focus?.());
-      if (this.preview) return;
+      if (this.preview) {
+        const collaboration = record.collaboration || this.previewCollaborationProjection(this.projectRecordType, record.id);
+        this.selectedProjectRecord = { ...this.selectedProjectRecord, collaboration };
+        this.openCollaborationSource(collaboration, { surface: "project", density: "full" });
+        return;
+      }
       const request = ++this.projectDetailRequest;
       this.projectDetailLoading = true;
       try {
@@ -1020,19 +1160,31 @@ export function registerWorkspace(Alpine) {
         if (request !== this.projectDetailRequest || this.selectedProjectRecord?.id !== record.id) return;
         this.selectedProjectRecord = detail;
         this.hydrateProjectRecordDraft(detail);
+        this.openCollaborationSource(detail.collaboration, { surface: "project", density: "full" });
       } catch (reason) {
         this.projectNotice = { tone: "error", text: readableError(reason, "The project record detail is unavailable.") };
       } finally {
         if (request === this.projectDetailRequest) this.projectDetailLoading = false;
       }
     },
-    openRequestedProjectRecord(recordType, recordId) {
+    async openRequestedProjectRecord(recordType, recordId) {
       const tab = recordType === "milestone" ? "milestones" : recordType === "decision" ? "decisions" : `${recordType}s`;
       const record = this.projectSnapshot?.[tab]?.find((item) => item.id === recordId);
-      if (record) this.openProjectRecord(record, null, false);
-      else {
+      if (record) return this.openProjectRecord(record, null, false);
+      this.projectRecordType = recordType;
+      try {
+        const detail = normalizeProjectDetail(recordType, await loadProjectRecordDetail(recordType, recordId), this.projectSnapshot?.members);
+        this.selectedProjectRecord = detail;
+        this.projectEditorMode = "edit";
+        this.hydrateProjectRecordDraft(detail);
+        this.openCollaborationSource(detail.collaboration, { surface: "project", density: "full" });
+        this.$nextTick(() => document.querySelector(".project-detail-pane")?.focus?.());
+        return true;
+      } catch (reason) {
         this.projectUnavailable = { recordType, recordId };
+        this.projectNotice = { tone: "error", text: readableError(reason, "The project record detail is unavailable.") };
         this.normalizeUnavailableProjectRoute();
+        return false;
       }
     },
     normalizeUnavailableProjectRoute() {
@@ -1053,6 +1205,7 @@ export function registerWorkspace(Alpine) {
       this.projectNotice = null;
       this.projectUnavailable = null;
       this.projectDetailLoading = false;
+      this.closeCollaborationSource();
       if (updateHistory && this.view === "projects") this.replaceWorkspaceLocation(true);
       const focus = this.projectReturnFocus;
       this.$nextTick(() => focus?.focus?.());
@@ -1126,57 +1279,132 @@ export function registerWorkspace(Alpine) {
         this.projectNotice = { tone: "error", text: readableError(reason, "The latest project record could not be loaded.") };
       }
     },
-    async submitInboxComment() {
-      if (!this.selectedInboxItem || !this.inboxComment.trim() || this.inboxMutation) return;
-      this.inboxMutation = true;
-      this.inboxCommentNonce ||= globalThis.crypto.randomUUID();
-      try {
-        await createWorkComment(this.selectedInboxItem.sourceType, this.selectedInboxItem.sourceId, this.inboxComment.trim(), this.inboxCommentNonce);
-        this.inboxComment = "";
-        this.inboxCommentNonce = null;
-        this.inboxNotice = { tone: "success", text: "Comment attached to the source record." };
-      } catch (reason) {
-        this.inboxNotice = { tone: "error", text: readableError(reason, "The contextual comment was not saved.") };
-      } finally {
-        this.inboxMutation = false;
-      }
+    previewCollaborationProjection(sourceType = this.collaboration?.sourceType, sourceId = this.collaboration?.sourceId) {
+      const canonicalType = String(sourceType || "").replace(/^project_/, "");
+      const projection = this.previewCollaboration[`${canonicalType}:${sourceId}`] || { sourceType: canonicalType, sourceId, comments: [], eligibleCollaborators: this.projectSnapshot?.members || [] };
+      return JSON.parse(JSON.stringify(projection));
     },
-    async toggleInboxFollow() {
-      if (!this.selectedInboxItem || this.inboxMutation) return;
-      this.inboxMutation = true;
-      try {
-        await followWorkSource(this.selectedInboxItem.sourceType, this.selectedInboxItem.sourceId, true);
-        this.inboxNotice = { tone: "success", text: "You are now following this source record." };
-        await this.refreshInbox(this.inbox.bucket);
-      } catch (reason) {
-        this.inboxNotice = { tone: "error", text: readableError(reason, "Follow state was not saved.") };
-      } finally {
-        this.inboxMutation = false;
-      }
+    previewInboxItemDetail(item) { return { ...item, collaboration: this.previewCollaborationProjection(item.sourceType, item.sourceId) }; },
+    previewAddCollaborationComment(body, mentionedUserIds, nonce, sourceKey = this.collaborationSourceKey()) {
+      this.previewCollaboration[sourceKey].comments.push({ id: `preview-comment-${Date.now()}`, body, authorId: this.access.userId, authorName: this.access.displayName, authorRole: this.access.role, createdAt: new Date().toISOString(), revisionCount: 1, canRevise: true, revisions: [] });
     },
-    async submitInboxHandoff() {
-      if (!this.selectedInboxItem || this.inboxMutation) return;
-      const toUserId = this.inboxHandoff.toUserId.trim();
-      const reason = this.inboxHandoff.reason.trim();
-      if (!toUserId || reason.length < 12) {
-        this.inboxNotice = { tone: "error", text: "Choose an authorized recipient and provide at least 12 characters of handoff context." };
-        return;
+    previewSetCollaborationFollow(following, sourceKey = this.collaborationSourceKey()) { this.previewCollaboration[sourceKey].isFollowing = following; },
+    previewAddCollaborationHandoff(toUserId, reason, nonce, sourceKey = this.collaborationSourceKey()) {
+      const projection = this.previewCollaboration[sourceKey];
+      const recipient = projection.eligibleCollaborators.find((member) => (member.userId || member.user_id) === toUserId);
+      projection.recentHandoff = { toUserId, toDisplayName: recipient?.displayName || recipient?.display_name || "Team member", reason, createdAt: new Date().toISOString() };
+    },
+    previewReviseCollaborationComment(commentId, body, changeReason) {
+      const comment = this.previewCollaboration[this.collaborationSourceKey()].comments.find((item) => item.id === commentId);
+      comment.revisions ||= [];
+      comment.revisions.push({ revision: comment.revisionCount, body: comment.body, changeReason, editorName: this.access.displayName, createdAt: new Date().toISOString() });
+      comment.body = body; comment.revisionCount += 1; comment.editedAt = new Date().toISOString();
+    },
+    async reloadActiveCollaborationProjection() {
+      if (!this.collaboration) return null;
+      if (this.preview) return this.previewCollaborationProjection();
+      if (this.collaborationSurface === "today") {
+        const detail = await loadInboxItemDetail(this.collaborationInboxItemId);
+        return detail.collaboration;
       }
-      this.inboxMutation = true;
-      this.inboxHandoff.nonce ||= globalThis.crypto.randomUUID();
-      try {
-        await handoffWork(this.selectedInboxItem.sourceType, this.selectedInboxItem.sourceId, toUserId, reason, this.inboxHandoff.nonce);
-        this.inboxHandoff = { toUserId: "", reason: "", nonce: null };
-        this.inboxNotice = { tone: "success", text: "Reasoned handoff sent to the authorized recipient." };
-      } catch (reasonError) {
-        this.inboxNotice = { tone: "error", text: readableError(reasonError, "The handoff was not saved.") };
-      } finally {
-        this.inboxMutation = false;
-      }
+      const detail = normalizeProjectDetail(this.projectRecordType, await loadProjectRecordDetail(this.projectRecordType, this.collaboration.sourceId), this.projectSnapshot?.members);
+      return detail.collaboration;
     },
     showToast(title, body) {
       this.toast = { title, body };
       setTimeout(() => { this.toast = null; }, 4200);
+    },
+    async openBriefingItem(item) {
+      const destination = briefingSourceDestination(item);
+      if (!destination) {
+        this.showToast("Source unavailable", "This recorded item does not have a supported workspace destination yet.");
+        return false;
+      }
+      if (destination.view === "today") {
+        await this.setTodayTab(destination.tab);
+        if (destination.task) {
+          const task = this.data.tasks.find((entry) => entry.id === destination.task) || { id: destination.task, title: item.title, status: "assigned" };
+          await this.selectTask(task, { preview: this.briefingState.preview });
+        }
+        return true;
+      }
+      if (destination.view === "projects") {
+        this.applyWorkspaceRoute(resolveWorkspaceRoute({ ...destination, project: this.projectSwitcherValue }));
+        this.replaceWorkspaceLocation();
+        const recordType = ["milestone", "blocker", "risk", "decision"].find((type) => destination[type]);
+        if (recordType) await this.openRequestedProjectRecord(recordType, destination[recordType]);
+        return true;
+      }
+      if (destination.view === "research") {
+        await this.setResearchTab(destination.tab);
+        if (destination.tab === "surveys") {
+          await this.openSurveyWorkspace();
+          const asset = (this.surveyLibrary.assets || []).find((entry) => entry.id === destination.assetId);
+          if (!asset) {
+            this.surveyError = "The survey owning this review item is not available in the authorized library.";
+            return false;
+          }
+          await this.openSurveyAsset(asset);
+          await this.setSurveyTab(destination.response ? "review" : "distribution");
+          if (destination.version) {
+            this.surveyRequestedVersionId = destination.version;
+            this.$nextTick(() => document.querySelector(".survey-version-list .is-requested")?.focus?.());
+          }
+          if (destination.response) {
+            this.surveySelectedResponse = (this.surveyWorkspace?.submissions || []).find((entry) => entry.id === destination.response) || null;
+            if (!this.surveySelectedResponse) this.surveyError = "The selected response is not available in this authorized survey snapshot.";
+          }
+          return Boolean(destination.version || this.surveySelectedResponse);
+        }
+        if (destination.layer) {
+          this.matrixLayer = destination.layer;
+          this.selectedLayer = this.data.pmfLayers?.find((layer) => layer.code === destination.layer) || null;
+        }
+        if (destination.type && destination.id) this.openRequestedCollectRecord(destination.type, destination.id);
+        return true;
+      }
+      if (destination.view === "relationships") {
+        if (destination.participant) {
+          const url = new URL(location.href);
+          url.search = "";
+          url.searchParams.set("view", "relationships");
+          url.searchParams.set("tab", "recruitment");
+          url.searchParams.set("participant", destination.participant);
+          location.assign(url);
+          return true;
+        }
+        await this.setRelationshipsTab(destination.tab);
+        if (destination.candidate) {
+          try {
+            let candidate = this.candidates.find((entry) => entry.id === destination.candidate);
+            if (!candidate && !this.briefingState.preview) {
+              const operations = await loadOperationsSnapshot();
+              this.data = { ...this.data, ...operations };
+              candidate = this.candidates.find((entry) => entry.id === destination.candidate);
+            }
+            if (candidate) this.selectCandidate(candidate);
+            else this.showToast("Candidate unavailable", "This outreach source is unavailable in your authorized snapshot.");
+          } catch (reason) {
+            this.showToast("Candidate unavailable", readableError(reason, "The outreach source could not be loaded."));
+          }
+        }
+        if (destination.contact) {
+          let contact = this.crmContacts.find((entry) => entry.id === destination.contact);
+          if (!contact && !this.briefingState.preview) {
+            try {
+              const crm = await loadCrmSnapshot();
+              this.data = { ...this.data, ...crm };
+              contact = this.crmContacts.find((entry) => entry.id === destination.contact);
+            } catch (reason) {
+              this.showToast("Contact unavailable", readableError(reason, "The contact record could not be loaded."));
+            }
+          }
+          if (contact) this.openCrmContact(contact);
+          else this.showToast("Contact unavailable", "This authorized Briefing item could not be found in the current CRM snapshot.");
+        }
+        return true;
+      }
+      return false;
     },
     async completeInternOnboarding(stepKey, destination) {
       try {
@@ -1194,24 +1422,27 @@ export function registerWorkspace(Alpine) {
       };
       this.taskReviewForm = { note: "" };
     },
-    async selectTask(task) {
+    async selectTask(task, { preview = this.preview } = {}) {
       if (!task) return;
       if (!this.selectedTask) this.taskReturnFocus = document.activeElement;
       this.selectedTask = { ...task };
+      this.taskDetailReady = preview;
       this.resetTaskForms(task);
       this.taskCheckpointNotice = null;
       this.$nextTick(() => this.focusDialog(".task-drawer"));
-      if (this.preview) return;
+      if (preview) return;
       const requestId = ++this.taskDetailRequest;
       this.loadingTaskDetail = true;
       try {
         const detail = await loadTaskDetail(task.id);
         if (requestId !== this.taskDetailRequest || this.selectedTask?.id !== task.id) return;
         this.selectedTask = detail;
+        this.taskDetailReady = true;
         this.resetTaskForms(detail);
       } catch (reason) {
         if (requestId !== this.taskDetailRequest) return;
         this.taskCheckpointNotice = { tone: "error", text: readableError(reason, "Unable to load the task detail.") };
+        this.taskDetailReady = false;
       } finally {
         if (requestId === this.taskDetailRequest) this.loadingTaskDetail = false;
       }
@@ -1221,8 +1452,9 @@ export function registerWorkspace(Alpine) {
       if (task) this.selectTask(task);
     },
     openRequestedCollectRecord(recordType, recordId) {
-      const record = this.collectRecords.find((entry) => entry.id === recordId && entry.recordType === recordType);
-      if (record) this.openCollectRecord(record);
+      const record = this.collectRecords.find((entry) => entry.id === recordId && entry.recordType === recordType)
+        || { id: recordId, recordType, title: "Loading collected record", workflowStatus: "loading" };
+      this.openCollectRecord(record);
     },
     openTaskCheckpoint() {
       const task = this.data.tasks.find((item) => !["completed", "submitted", "approved", "cancelled"].includes(item.status));
@@ -1234,12 +1466,13 @@ export function registerWorkspace(Alpine) {
       this.selectedTask = null;
       this.taskCheckpointNotice = null;
       this.loadingTaskDetail = false;
+      this.taskDetailReady = false;
       this.$nextTick(() => this.taskReturnFocus?.focus?.());
     },
     selectCandidate(candidate) {
       if (!this.candidateEditorOpen) this.candidateReturnFocus = document.activeElement;
       this.selectedCandidate = { ...candidate };
-      this.candidateForm = { ...this.candidateForm, ...candidate };
+      this.candidateForm = { ...this.candidateForm, ...candidate, ownerId: candidate.ownerId || "" };
       this.candidateEditorOpen = true;
       this.$nextTick(() => this.focusDialog(".candidate-drawer"));
     },
@@ -1350,7 +1583,7 @@ export function registerWorkspace(Alpine) {
       this.crmSaving = true;
       try {
         if (!this.preview) {
-          const persisted = await upsertCrmContact({ ...saved, createOutreach: true });
+          const persisted = await upsertCrmContact({ ...saved, createOutreach: Boolean(this.crmForm.createOutreach) });
           awarded = persisted.rewardPoints || 0;
           saved = { ...saved, ...persisted };
         }
@@ -1361,7 +1594,8 @@ export function registerWorkspace(Alpine) {
         this.crmNotice = { tone: "success", text: awarded ? `Saved. +${awarded} XP for verified enrichment.` : "Saved. Today's enrichment reward was already recorded." };
         await this.refreshMutationState({ crmContactId: saved.id });
       } catch (reason) {
-        this.crmNotice = { tone: "error", text: readableError(reason, "Unable to save the CRM contact.") };
+        const stale = reason instanceof Error && reason.message.includes("OUTREACH_STALE_WRITE");
+        this.crmNotice = { tone: "error", text: stale ? "This contact changed elsewhere. Your edits are preserved; load the current record before saving again." : readableError(reason, "Unable to save the CRM contact."), action: stale ? "reload" : "" };
       } finally {
         this.crmSaving = false;
       }
@@ -1407,7 +1641,8 @@ export function registerWorkspace(Alpine) {
           const saved = await upsertCandidate(candidate);
           candidate = { ...candidate, ...saved };
         } catch (reason) {
-          this.candidateNotice = { tone: "error", text: readableError(reason, "Unable to save the candidate.") };
+          const stale = reason instanceof Error && reason.message.includes("OUTREACH_STALE_WRITE");
+          this.candidateNotice = { tone: "error", text: stale ? "This candidate changed elsewhere. Your edits are preserved; load the current record before saving again." : readableError(reason, "Unable to save the candidate."), action: stale ? "reload" : "" };
           return;
         }
       }
@@ -1417,12 +1652,31 @@ export function registerWorkspace(Alpine) {
       this.data.outreachSummary = { ...this.data.outreachSummary, totalCandidates: this.candidates.length };
       await this.refreshMutationState({ candidateId: candidate.id });
     },
+    async reloadStaleRelationship(kind) {
+      const draft = structuredClone(kind === "contact" ? this.crmForm : this.candidateForm);
+      await this.refreshDashboard();
+      if (kind === "contact") {
+        const current = this.crmContacts.find((item) => item.id === this.selectedCrmContact?.id);
+        if (current) {
+          this.selectedCrmContact = { ...current };
+          this.crmForm = { ...draft, updatedAt: current.updatedAt };
+          this.crmNotice = { tone: "warning", text: "Current revision loaded. Review your preserved edits, then save again." };
+        }
+      } else {
+        const current = this.candidates.find((item) => item.id === this.selectedCandidate?.id);
+        if (current) {
+          this.selectedCandidate = { ...current };
+          this.candidateForm = { ...draft, updatedAt: current.updatedAt };
+          this.candidateNotice = { tone: "warning", text: "Current revision loaded. Review your preserved edits, then save again." };
+        }
+      }
+    },
     startNewCandidate() {
       this.setOutreachSection("pipeline");
       if (!this.candidateEditorOpen) this.candidateReturnFocus = document.activeElement;
       this.selectedCandidate = null;
       this.candidateEditorOpen = true;
-      this.candidateForm = { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, ownerName: this.access?.displayName || "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" };
+      this.candidateForm = { name: "", category: "Dental Professional", platforms: "", reach: "", tier: "Micro", contactReadiness: "Research needed", contactChannel: "", contactDetail: "", pmfCandidate: false, pmfRationale: "", priorityScore: 50, priorityBand: "Medium", ownerId: this.access?.userId || "", ownerName: this.access?.displayName || "", outreachStatus: "Not Contacted", nextStep: "", nextStepDue: "", sourceUrl: "", notes: "" };
       this.candidateNotice = null;
       this.$nextTick(() => this.focusDialog(".candidate-drawer"));
     },
@@ -2254,7 +2508,7 @@ export function registerWorkspace(Alpine) {
         this.data = {
           ...liveData,
           dailyEod: liveData.dailyEod || this.data.dailyEod,
-          campaign: liveData.campaign || fallbackDashboard.campaign,
+          campaign: liveData.campaign || { name: "", deadline: null, targetLow: 0, targetHigh: 0, planningTarget: 0, conversionRate: 0 },
           outreachSummary: liveData.outreachSummary || { totalCandidates: 0, contactReady: 0, contacted: 0, responses: 0, interested: 0, confirmed: 0, pmfCandidates: 0, researchNeeded: 0 },
           categories: liveData.categories || [],
           candidates: liveData.candidates || [],
@@ -2287,13 +2541,61 @@ export function registerWorkspace(Alpine) {
         if (sequence === this.dashboardRefreshSequence) this.loading = false;
       }
     },
+    async refreshBriefing(projectId = this.projectSwitcherValue || this.access?.projectId || null) {
+      const sequence = ++this.briefingRefreshSequence;
+      const hasConfirmedData = Boolean(this.briefingState.generatedAt);
+      this.briefingLoading = true;
+      this.briefingError = "";
+      try {
+        const payload = this.briefingPreviewMode
+          ? createPreviewBriefing(fallbackDashboard, this.expectedRole, this.access?.displayName)
+          : createBriefingState(await loadTodayBriefing(projectId));
+        if (sequence !== this.briefingRefreshSequence) return false;
+        this.briefingState = payload;
+        this.briefingPreviewMode = payload.preview;
+        this.briefingStale = false;
+        return true;
+      } catch (reason) {
+        if (sequence !== this.briefingRefreshSequence) return false;
+        this.briefingError = readableError(reason, "The live briefing is temporarily unavailable.");
+        this.briefingStale = hasConfirmedData;
+        return false;
+      } finally {
+        if (sequence === this.briefingRefreshSequence) this.briefingLoading = false;
+      }
+    },
+    async retryLiveBriefing() {
+      this.briefingPreviewMode = false;
+      return this.refreshBriefing();
+    },
     usePreview() {
       this.dashboardRefreshSequence += 1;
-      const previewName = this.expectedRole === "admin" ? "AOI Administrator" : "Kayla Tillmon";
+      this.briefingRefreshSequence += 1;
+      const previewName = this.expectedRole === "admin" ? "Avery Example" : "Morgan Example";
       this.data = scopePreviewDashboard(fallbackDashboard, this.expectedRole, previewName);
+      this.briefingState = createPreviewBriefing(fallbackDashboard, this.expectedRole, previewName);
+      this.briefingPreviewMode = true;
+      this.briefingLoading = false;
+      this.briefingError = "";
+      this.briefingStale = false;
       const previewProject = scopePreviewProject(this.expectedRole);
+      this.data = { ...this.data, project: { ...this.data.project, ...previewProject.snapshot.project } };
+      this.briefingState = { ...this.briefingState, project: previewProject.snapshot.project };
       this.projectContext = previewProject.context;
       this.projectSnapshot = normalizeProjectSnapshot(previewProject.snapshot);
+      this.previewCollaboration = Object.fromEntries([...(this.projectSnapshot.milestones || []), ...(this.projectSnapshot.blockers || []), ...(this.projectSnapshot.risks || []), ...(this.projectSnapshot.decisions || [])].map((record) => {
+        const sourceType = record.id.includes("milestone") ? "milestone" : record.id.includes("blocker") ? "blocker" : record.id.includes("risk") ? "risk" : "decision";
+        return [`${sourceType}:${record.id}`, { sourceType, sourceId: record.id, projectId: previewProject.context.selectedProjectId, isFollowing: false, eligibleCollaborators: this.projectSnapshot.members, comments: [] }];
+      }));
+      for (const [sourceType, records] of [["milestone", this.projectSnapshot.milestones], ["blocker", this.projectSnapshot.blockers], ["risk", this.projectSnapshot.risks], ["decision", this.projectSnapshot.decisions]]) {
+        for (const record of records || []) record.collaboration = this.previewCollaboration[`${sourceType}:${record.id}`];
+      }
+      this.inbox = createInboxState({
+        projectId: previewProject.context.selectedProjectId,
+        counts: { needsAction: 1 },
+        items: [{ id: "preview-project-inbox-1", projectId: previewProject.context.selectedProjectId, sourceType: "project_decision", sourceId: "preview-decision-1", summary: "Review the accessibility context decision", reason: "A fictional project decision is ready for governance review.", priority: "high", readAt: null, resolvedAt: null }],
+        generatedAt: previewProject.snapshot.generatedAt,
+      });
       this.access = { ...this.access, projectId: previewProject.context.selectedProjectId, organizationId: previewProject.context.selectedOrganizationId };
       this.preview = true;
       this.hydrateDailyEod(this.data.dailyEod);

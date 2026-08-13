@@ -38,6 +38,8 @@ test("wires the persisted inbox into Today and replaces fake notifications", asy
   assert.match(api, /rpc_aoi_create_work_comment/);
   assert.match(api, /rpc_aoi_follow_work_source/);
   assert.match(api, /rpc_aoi_handoff_work/);
+  assert.match(api, /rpc_aoi_inbox_item_detail/);
+  assert.match(api, /rpc_aoi_revise_work_comment/);
   assert.match(workspace, /refreshInbox/);
   assert.match(workspace, /openInboxItem/);
   assert.match(workspace, /this\.collectRecords\.find/);
@@ -45,8 +47,7 @@ test("wires the persisted inbox into Today and replaces fake notifications", asy
   assert.match(workspace, /focus\?\.\(\)/);
   assert.match(workspace, /openRequestedTask/);
   assert.match(workspace, /openRequestedCollectRecord/);
-  assert.match(workspace, /submitInboxComment/);
-  assert.match(workspace, /globalThis\.crypto\.randomUUID/);
+  assert.match(workspace, /createCollaborationState/);
   assert.match(template, /inboxTemplate/);
   assert.doesNotMatch(template, /Evidence review ready|notificationsRead/);
   assert.match(inboxTemplate, /Needs action/);
@@ -59,4 +60,10 @@ test("wires the persisted inbox into Today and replaces fake notifications", asy
   assert.match(inboxTemplate, /aria-live="polite"/);
   assert.match(inboxTemplate, /:aria-pressed="inbox\.bucket===/);
   assert.match(inboxTemplate, /closeInboxItem\(\)/);
+  assert.match(inboxTemplate, /submitCollaborationComment\(\)/);
+  assert.match(inboxTemplate, /toggleCollaborationFollow\(\)/);
+  assert.match(inboxTemplate, /submitCollaborationHandoff\(\)/);
+  assert.match(inboxTemplate, /eligibleCollaborators/);
+  assert.match(inboxTemplate, /collaboration\.comments/);
+  assert.doesNotMatch(inboxTemplate, /Handoff recipient ID|Authorized team member UUID/);
 });

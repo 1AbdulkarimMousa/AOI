@@ -96,6 +96,7 @@ export function createSurveyWorkspaceState() {
   return {
     surveyReady: false,
     surveyLoading: false,
+    surveyLoadPromise: null,
     surveySaving: false,
     surveyDirty: false,
     surveyError: "",
@@ -121,6 +122,7 @@ export function createSurveyWorkspaceState() {
     surveyAnalysisTab: "overview",
     surveyReviewNotes: {},
     surveySelectedResponse: null,
+    surveyRequestedVersionId: null,
     surveyReviewQuery: "",
     surveyReviewStatus: "all",
     surveyReviewVersion: "all",
@@ -208,10 +210,12 @@ export function createSurveyWorkspaceState() {
     },
 
     async openSurveyWorkspace() {
-      if (this.surveyReady || this.surveyLoading) return;
+      if (this.surveyReady) return true;
+      if (this.surveyLoadPromise) return this.surveyLoadPromise;
       this.surveyLoading = true;
       this.surveyError = "";
-      try {
+      this.surveyLoadPromise = (async () => {
+        try {
         this.surveyLibrary = this.preview ? {
           assets: [{ id: "demo-survey", assetType: "survey", title: { en: "Concept value study", zh: "概念价值研究" }, status: "published", tags: ["H3", "concept"], responseCount: 86, approvedCount: 64, draftRevision: 4, publishedVersion: 1, updatedAt: new Date().toISOString() }],
           reviewCount: 1,
@@ -221,11 +225,16 @@ export function createSurveyWorkspaceState() {
           this.surveyBeforeUnloadBound = true;
         }
         this.surveyReady = true;
-      } catch (reason) {
-        this.surveyError = readableError(reason, "Unable to load surveys.");
-      } finally {
-        this.surveyLoading = false;
-      }
+          return true;
+        } catch (reason) {
+          this.surveyError = readableError(reason, "Unable to load surveys.");
+          return false;
+        } finally {
+          this.surveyLoading = false;
+          this.surveyLoadPromise = null;
+        }
+      })();
+      return this.surveyLoadPromise;
     },
 
     async setSurveyTab(tab) {

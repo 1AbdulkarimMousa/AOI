@@ -87,6 +87,7 @@ export function scopePreviewDashboard(dashboard, role, displayName) {
     copy.outreachEvents = (copy.outreachEvents || []).filter((event) => candidateIds.has(event.candidateId));
     const contactIds = new Set((copy.crmContacts || []).map((contact) => contact.id));
     copy.crmActivity = (copy.crmActivity || []).filter((activity) => contactIds.has(activity.contactId));
+    copy.participantRecruitment = (copy.participantRecruitment || []).filter((item) => item.ownerName === displayName);
     const visibleResearch = (record) => record.workflowStatus === "approved" || record.assignedToName === displayName;
     copy.respondents = (copy.respondents || []).filter(visibleResearch);
     const respondentIds = new Set(copy.respondents.map((record) => record.id));

@@ -71,6 +71,39 @@ test("contact deep links follow browser back and forward", async ({ page, isMobi
   await expect(page.getByRole("dialog", { name: /Contact record/ })).toBeVisible();
 });
 
+test("preview Recruitment remains embedded in Relationships", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=relationships&tab=recruitment");
+  await expect(page).toHaveURL(/view=relationships&tab=recruitment/);
+  await expect(page.getByRole("heading", { name: "Recruitment", exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/login\.html/);
+});
+
+test("Relationships and Outreach tabs support keyboard navigation", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=relationships&tab=contacts");
+  const contacts = page.getByRole("tab", { name: "Contacts" });
+  await contacts.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Recruitment" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("End");
+  await expect(page.getByRole("tab", { name: "Outreach" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "Pipeline" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Evidence" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("Relationships routes contain narrow viewports and keep touch targets usable", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "Narrow viewport contract.");
+  for (const route of [
+    "contacts",
+    "recruitment",
+    "outreach&section=pipeline",
+  ]) {
+    await page.goto(`/AOI/workspace.html?preview=1&view=relationships&tab=${route}`);
+    const containment = await mobileContainment(page);
+    expect(containment.overflow, JSON.stringify(containment.offenders)).toBeLessThanOrEqual(1);
+  }
+});
+
 test("mobile survey management has no page-level horizontal overflow", async ({ page, isMobile }) => {
   test.skip(!isMobile, "Mobile-only containment contract.");
   await page.goto("/AOI/workspace.html?preview=1&view=research&tab=surveys");
@@ -87,10 +120,43 @@ test("mobile survey management has no page-level horizontal overflow", async ({ 
 
 test("role-adaptive Today inbox reflows without horizontal overflow", async ({ page }) => {
   await page.goto("/AOI/workspace.html?preview=1&view=today&tab=briefing");
-  await expect(page.getByRole("heading", { name: /assigned actions|review queues/i })).toBeVisible();
+  await expect(page.locator(".briefing-workspace").getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".briefing-header-state").getByText("Preview only", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PMF evidence chain" })).toBeVisible();
   const containment = await mobileContainment(page);
   expect(containment.overflow, JSON.stringify(containment.offenders)).toBeLessThanOrEqual(1);
   await expect(page.getByRole("navigation", { name: "Work inbox views" })).toBeVisible();
+});
+
+test("Briefing routes factual PMF evidence directly to Analyze", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=today&tab=briefing");
+  await page.locator(".briefing-pmf-list button").first().click();
+  await expect(page).toHaveURL(/view=research&tab=analyze/);
+  await expect(page.getByRole("tab", { name: "Analyze" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("intern Briefing stays personal and preserves explicit preview provenance", async ({ page }) => {
+  await page.goto("/AOI/interns.html?preview=1&view=today&tab=briefing");
+  const briefing = page.locator(".briefing-workspace");
+  await expect(briefing.getByRole("heading", { level: 1 })).toContainText(/item needs|assigned work is clear/i);
+  await expect(briefing.locator(".briefing-header-state")).toContainText("Preview only");
+  await expect(briefing.locator(".briefing-attention-row")).toHaveCount(1);
+  await expect(briefing.locator(".briefing-attention-row")).toContainText("Assigned task needs follow-up");
+});
+
+test("Briefing actions retain 44px targets and explicit empty states", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=today&tab=briefing");
+  for (const selector of [".briefing-pulse button", ".briefing-text-action", ".briefing-attention-row"]) {
+    const box = await page.locator(selector).first().boundingBox();
+    expect(box?.height || 0, selector).toBeGreaterThanOrEqual(44);
+  }
+  await page.evaluate(() => {
+    const root = document.querySelector("[x-data]");
+    const state = window.Alpine.$data(root);
+    state.briefingState = { ...state.briefingState, pmfChain: [], generatedAt: new Date().toISOString() };
+  });
+  await expect(page.getByText("No PMF layers configured.")).toBeVisible();
 });
 
 test("Today inbox tolerates AAA text spacing overrides", async ({ page }) => {

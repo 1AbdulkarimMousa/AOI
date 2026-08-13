@@ -102,3 +102,36 @@ test("keeps keyboard focus inside the prospect drawer and restores it on close",
   assert.match(controller, /this\.\$refs\.participantEditor\?\.focus\(\)/);
   assert.match(controller, /this\.editorTrigger\?\.focus\(\)/);
 });
+
+test("embedded recruitment inherits preview context instead of authenticating independently", async () => {
+  const [template, controller] = await Promise.all([
+    readFile(new URL("../src/js/participant-tracker-template.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/js/participant-tracker.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(template, /participantTrackerPage\(\{ embedded: true, preview, access, items:/);
+  assert.doesNotMatch(template, /x-init="embedded=true; init\(\)"/);
+  assert.match(controller, /previewContext/);
+  assert.match(controller, /if \(this\.embedded && this\.previewContext\)/);
+});
+
+test("recruitment rows and stage choices expose governed keyboard behavior", async () => {
+  const [template, controller] = await Promise.all([
+    readFile(new URL("../src/js/participant-tracker-template.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/js/participant-tracker.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(template, /class="participant-row"[\s\S]*tabindex="0"[\s\S]*@keydown\.enter\.self/);
+  assert.match(template, /Recruitment stage[\s\S]*availableStatuses\(form\)/);
+  assert.match(controller, /screening:\s*\["screening", "scheduled", "completed", "declined"\]/);
+  assert.match(controller, /no_response:\s*\["no_response"\]/);
+  assert.match(controller, /delete payload\.crmContactId/);
+  assert.match(controller, /delete payload\.respondentId/);
+  assert.match(controller, /if \(this\.preview\)[\s\S]*Preview only: respondent conversion is disabled/);
+});
+
+test("embedded recruitment remounts when project context changes", async () => {
+  const workspace = await readFile(new URL("../src/js/workspace.js", import.meta.url), "utf8");
+  assert.match(workspace, /remountRecruitment\(\)/);
+  assert.match(workspace, /changeProject[\s\S]*remountRecruitment\(\)/);
+});

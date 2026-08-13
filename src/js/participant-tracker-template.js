@@ -49,7 +49,9 @@ const participantTrackerContentTemplate = String.raw`
       </aside>
     </div>
   </div>
-</template>`;
+</template>`
+  .replace('class="participant-row" @click="openEdit(item)"', 'class="participant-row" tabindex="0" @keydown.enter.self.prevent="openEdit(item)" @keydown.space.self.prevent="openEdit(item)" @click="openEdit(item)"')
+  .replace('<span>Recruitment stage</span><select x-model="form.status"><template x-for="status in statusOptions"', '<span>Recruitment stage</span><select x-model="form.status"><template x-for="status in availableStatuses(form)"');
 
 export const participantTrackerTemplate = String.raw`
 <div x-data="participantTrackerPage" x-init="init()" x-cloak class="participant-tracker-shell">
@@ -61,7 +63,7 @@ export const participantTrackerTemplate = String.raw`
 </div>`;
 
 export const participantTrackerEmbedTemplate = String.raw`
-<div x-data="participantTrackerPage" x-init="embedded=true; init()" x-cloak class="participant-embedded-shell">
+<div x-data="participantTrackerPage({ embedded: true, preview, access, items: data.participantRecruitment || [] })" x-cloak class="participant-embedded-shell">
   <div class="participant-embedded-heading"><div><span class="eyebrow">Prospect pipeline</span><h2>Recruitment</h2><p>Move verified interest toward screening without creating research evidence.</p></div><div class="participant-embedded-actions"><a class="button button-secondary" :href="trackerUrl">Open full tracker</a><button type="button" class="button button-primary" @click="openNew()">+ Add a prospect</button></div></div>
   ${participantTrackerContentTemplate}
 </div>`;

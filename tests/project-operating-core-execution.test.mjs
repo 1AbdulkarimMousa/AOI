@@ -76,6 +76,29 @@ test('project operating core executes with isolated lifecycle and collaboration 
       assert.match(definition, /SET search_path TO ''/);
     }
 
+    for (const signature of [
+      'public.rpc_aoi_operations_snapshot()',
+      'public.rpc_aoi_crm_snapshot()',
+      'public.rpc_aoi_upsert_crm_contact(jsonb)',
+      'public.rpc_aoi_upsert_candidate(jsonb)',
+      'public.rpc_aoi_log_outreach(uuid,text,text,text,text)',
+      'public.rpc_aoi_add_evidence(uuid,text,text,integer,text,text,text)',
+      'public.rpc_aoi_import_candidates(jsonb,text,text)',
+      'public.rpc_aoi_participant_tracker_snapshot()',
+      'public.rpc_aoi_upsert_participant_recruitment(jsonb)',
+      'public.rpc_aoi_convert_recruitment_to_respondent(uuid)',
+      'public.rpc_aoi_append_consent_version(uuid,jsonb)',
+    ]) {
+      assert.equal(database.query(`
+        select has_function_privilege('authenticated', '${signature}', 'execute')
+          and has_function_privilege('service_role', '${signature}', 'execute')
+          and not has_function_privilege('anon', '${signature}', 'execute')
+      `), 't');
+      const definition = await database.functionDefinition(signature);
+      assert.match(definition, /SECURITY DEFINER/);
+      assert.match(definition, /SET search_path TO ''/);
+    }
+
     assert.equal(database.query(`
       select count(*) = 1 and bool_and(project_id = '${projectId}'::uuid)
       from public.project_members where user_id = '${internId}' and active
@@ -116,7 +139,228 @@ test('project operating core executes with isolated lifecycle and collaboration 
     ]) {
       assert.equal(database.query(`select ${predicate} from (select ${snapshot} payload) scoped`, authenticated(adminId)), 't', snapshot);
     }
+    const selectedContactId = database.query(`
+      select public.rpc_aoi_upsert_crm_contact(jsonb_build_object(
+        'name', 'Selected project contact', 'contactType', 'Professional',
+        'ownerId', '${adminId}', 'email', 'selected@example.test'
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.crm_contacts where id = '${selectedContactId}'`), otherProjectId);
+    assert.equal(database.query(`select count(*) from public.candidates where crm_contact_id = '${selectedContactId}'`), '0');
+    const selectedContactRevision = database.query(`
+      select item->>'updatedAt'
+      from jsonb_array_elements(public.rpc_aoi_crm_snapshot()->'crmContacts') item
+      where item->>'id' = '${selectedContactId}'
+    `, authenticated(adminId));
+    assert.match(selectedContactRevision, /2026|2027/);
+    assert.equal(database.query(`
+      select public.rpc_aoi_upsert_crm_contact(jsonb_build_object(
+        'id', '${selectedContactId}', 'updatedAt', '${selectedContactRevision}',
+        'notes', 'Revision-safe contact update'
+      ))->>'id'
+    `, authenticated(adminId)), selectedContactId);
+    assert.equal(database.query(`
+      select name = 'Selected project contact' and email = 'selected@example.test'
+        and notes = 'Revision-safe contact update'
+      from public.crm_contacts where id = '${selectedContactId}'
+    `), 't');
+    const staleContact = database.execute(`
+      select public.rpc_aoi_upsert_crm_contact(jsonb_build_object(
+        'id', '${selectedContactId}', 'updatedAt', '${selectedContactRevision}', 'notes', 'Must not overwrite'
+      ));
+    `, { ...authenticated(adminId), allowFailure: true });
+    assert.notEqual(staleContact.status, 0);
+    assert.match(staleContact.stderr, /OUTREACH_STALE_WRITE/);
+
+    const selectedCandidateId = database.query(`
+      select public.rpc_aoi_upsert_candidate(jsonb_build_object(
+        'externalId', 'SELECTED-CANDIDATE-001', 'name', 'Selected project candidate', 'category', 'Selected',
+        'contactReadiness', 'Email ready', 'contactDetail', 'candidate@example.test',
+        'ownerId', '${adminId}'
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.candidates where id = '${selectedCandidateId}'`), otherProjectId);
+    const selectedCandidateContactId = database.query(`select crm_contact_id from public.candidates where id = '${selectedCandidateId}'`);
+    assert.equal(database.query(`
+      select public.rpc_aoi_import_candidates(
+        jsonb_build_array(jsonb_build_object(
+          'externalId', external_id, 'name', name, 'notes', 'Portable import update'
+        )), 'portable.json', 'json'
+      )->>'imported'
+      from public.candidates where id = '${selectedCandidateId}'
+    `, authenticated(adminId)), '1');
+    assert.equal(database.query(`
+      select notes = 'Portable import update' and contact_detail = 'candidate@example.test'
+      from public.candidates where id = '${selectedCandidateId}'
+    `), 't');
+    assert.equal(database.query(`
+      select public.rpc_aoi_log_outreach(
+        '${selectedCandidateId}', 'Email', 'Initial', 'Sent', 'Selected-project outreach sent.'
+      )->>'candidateId'
+    `, authenticated(adminId)), selectedCandidateId);
+    const selectedEvidenceId = database.query(`
+      select public.rpc_aoi_add_evidence(
+        '${selectedCandidateId}', 'Contact research', 'supporting', 2,
+        'Selected-project contact route', 'Verified in execution test.', 'not_applicable'
+      )->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.evidence_records where id = '${selectedEvidenceId}'`), otherProjectId);
+    const selectedCandidateRevision = database.query(`
+      select item->>'updatedAt'
+      from jsonb_array_elements(public.rpc_aoi_operations_snapshot()->'candidates') item
+      where item->>'id' = '${selectedCandidateId}'
+    `, authenticated(adminId));
+    assert.match(selectedCandidateRevision, /2026|2027/);
+    assert.equal(database.query(`
+      select public.rpc_aoi_upsert_candidate(jsonb_build_object(
+        'id', '${selectedCandidateId}', 'updatedAt', '${selectedCandidateRevision}',
+        'notes', 'Revision-safe candidate update'
+      ))->>'id'
+    `, authenticated(adminId)), selectedCandidateId);
+    assert.equal(database.query(`
+      select name = 'Selected project candidate' and contact_detail = 'candidate@example.test'
+        and notes = 'Revision-safe candidate update'
+      from public.candidates where id = '${selectedCandidateId}'
+    `), 't');
+    const staleCandidate = database.execute(`
+      select public.rpc_aoi_upsert_candidate(jsonb_build_object(
+        'id', '${selectedCandidateId}', 'updatedAt', '${selectedCandidateRevision}', 'notes', 'Must not overwrite'
+      ));
+    `, { ...authenticated(adminId), allowFailure: true });
+    assert.notEqual(staleCandidate.status, 0);
+    assert.match(staleCandidate.stderr, /OUTREACH_STALE_WRITE/);
+
+    const selectedRecruitmentId = database.query(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'participantId', 'SELECTED-PROJECT-001', 'name', 'Selected project prospect',
+        'ownerId', '${adminId}'
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.participant_recruitment where id = '${selectedRecruitmentId}'`), otherProjectId);
+    const managedLinkInjection = database.execute(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'participantId', 'SELECTED-PROJECT-LINK', 'name', 'Managed link injection',
+        'ownerId', '${adminId}', 'crmContactId', '${selectedContactId}'
+      ));
+    `, { ...authenticated(adminId), allowFailure: true });
+    assert.notEqual(managedLinkInjection.status, 0);
+    assert.match(managedLinkInjection.stderr, /PARTICIPANT_LINK_MANAGED/);
+    const invalidRecruitmentJump = database.execute(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'id', '${selectedRecruitmentId}', 'status', 'completed'
+      ));
+    `, { ...authenticated(adminId), allowFailure: true });
+    assert.notEqual(invalidRecruitmentJump.status, 0);
+    assert.match(invalidRecruitmentJump.stderr, /PARTICIPANT_TRANSITION_INVALID/);
+    assert.equal(database.query(`
+      select payload->'outreachSummary' @> '{"totalCandidates":2,"contactReady":1,"contacted":1}'::jsonb
+        and payload->'categories' @> '[{"name":"Selected","candidates":1,"contactReady":1}]'::jsonb
+        and payload ? 'campaign' and payload ? 'recommendations'
+        and exists (
+          select 1 from jsonb_array_elements(payload->'candidates') candidate
+          where candidate->>'id' = '${selectedCandidateId}'
+            and candidate->>'ownerId' = '${adminId}' and candidate ? 'updatedAt'
+        )
+      from (select public.rpc_aoi_operations_snapshot() payload) snapshot
+    `, authenticated(adminId)), 't');
+    assert.equal(database.query(`
+      select exists (
+        select 1 from jsonb_array_elements(payload->'crmActivity') activity
+        where activity->>'contactId' in ('${selectedContactId}', '${selectedCandidateContactId}')
+          and activity->>'activityType' in ('enrich', 'outreach')
+      ) and exists (
+        select 1 from jsonb_array_elements(payload->'crmContacts') contact
+        where contact->>'id' = '${selectedCandidateContactId}' and (contact->>'activityCount')::integer > 0
+      )
+      from (select public.rpc_aoi_crm_snapshot() payload) snapshot
+    `, authenticated(adminId)), 't');
     assert.equal(database.query(`select public.rpc_aoi_select_project('${projectId}')->>'selectedProjectId'`, authenticated(adminId)), projectId);
+    const crossProjectOutreach = database.execute(`
+      select public.rpc_aoi_log_outreach(
+        '${selectedCandidateId}', 'Email', 'Follow-up', 'Sent', 'Must not cross the selected project.'
+      );
+    `, { ...authenticated(adminId), allowFailure: true });
+    assert.notEqual(crossProjectOutreach.status, 0);
+    assert.match(crossProjectOutreach.stderr, /CANDIDATE_NOT_FOUND/);
+    const primarySelectedContactId = database.query(`
+      select public.rpc_aoi_upsert_crm_contact(jsonb_build_object(
+        'name', 'Primary selected project contact', 'contactType', 'Professional',
+        'ownerId', '${adminId}', 'createOutreach', false
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.crm_contacts where id = '${primarySelectedContactId}'`), projectId);
+    const primarySelectedCandidateId = database.query(`
+      select public.rpc_aoi_upsert_candidate(jsonb_build_object(
+        'name', 'Primary selected project candidate', 'category', 'Primary',
+        'ownerId', '${adminId}'
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.candidates where id = '${primarySelectedCandidateId}'`), projectId);
+    const internCandidateReassignment = database.execute(`
+      select public.rpc_aoi_upsert_candidate(jsonb_build_object(
+        'id', '${primarySelectedCandidateId}',
+        'updatedAt', (select updated_at from public.candidates where id = '${primarySelectedCandidateId}'),
+        'ownerId', '${adminId}'
+      ));
+    `, { ...authenticated(internId), allowFailure: true });
+    assert.notEqual(internCandidateReassignment.status, 0);
+    assert.match(internCandidateReassignment.stderr, /OUTREACH_WRITE_NOT_ASSIGNED|OUTREACH_REASSIGN_ADMIN_REQUIRED/);
+    const primarySelectedRecruitmentId = database.query(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'participantId', 'PRIMARY-PROJECT-001', 'name', 'Primary selected project prospect',
+        'ownerId', '${internId}'
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`select project_id from public.participant_recruitment where id = '${primarySelectedRecruitmentId}'`), projectId);
+    const internReassignment = database.execute(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'id', '${primarySelectedRecruitmentId}', 'ownerId', '${adminId}'
+      ));
+    `, { ...authenticated(internId), allowFailure: true });
+    assert.notEqual(internReassignment.status, 0);
+    assert.match(internReassignment.stderr, /PARTICIPANT_REASSIGN_ADMIN_REQUIRED/);
+
+    const convertedRecruitmentId = database.query(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'participantId', 'PRIMARY-CONVERT-001', 'name', 'Converted consent prospect',
+        'email', 'converted-consent@example.test', 'ownerId', '${internId}',
+        'segment', (select name from public.research_segments where project_id = '${projectId}' order by sequence, id limit 1),
+        'consentStatus', 'granted'
+      ))->>'id'
+    `, authenticated(adminId));
+    for (const status of ['contacted', 'responded', 'screening', 'scheduled', 'completed']) {
+      assert.equal(database.query(`
+        select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+          'id', '${convertedRecruitmentId}', 'status', '${status}'
+        ))->>'status'
+      `, authenticated(adminId)), status);
+    }
+    const convertedRespondentId = database.query(`
+      select public.rpc_aoi_convert_recruitment_to_respondent('${convertedRecruitmentId}')->>'respondentId'
+    `, authenticated(adminId));
+    const withdrawalId = database.query(`
+      select public.rpc_aoi_append_consent_version('${convertedRespondentId}', jsonb_build_object(
+        'status', 'withdrawn', 'withdrawalReason', 'Participant withdrew converted consent.',
+        'recontactAllowed', true
+      ))->>'id'
+    `, authenticated(adminId));
+    assert.equal(database.query(`
+      select respondent.consent_status = 'withdrawn'
+        and recruitment.consent_status = 'withdrawn'
+        and consent.status = 'withdrawn' and not consent.recontact_allowed
+        and consent.source_reference = 'participant_recruitment:${convertedRecruitmentId}'
+      from public.respondents respondent
+      join public.participant_recruitment recruitment on recruitment.id = respondent.participant_recruitment_id
+      join public.consent_records consent on consent.id = '${withdrawalId}'
+      where respondent.id = '${convertedRespondentId}'
+    `), 't');
+    const terminalRecruitmentReopen = database.execute(`
+      select public.rpc_aoi_upsert_participant_recruitment(jsonb_build_object(
+        'id', '${convertedRecruitmentId}', 'status', 'contacted'
+      ));
+    `, { ...authenticated(adminId), allowFailure: true });
+    assert.notEqual(terminalRecruitmentReopen.status, 0);
+    assert.match(terminalRecruitmentReopen.stderr, /PARTICIPANT_TRANSITION_INVALID/);
     assert.equal(database.query(`
       select payload->>'selectedProjectId' = '${projectId}'
         and jsonb_array_length((payload->'organizations')->0->'projects') = 1
@@ -753,6 +997,7 @@ const preProjectCoreFixtures = `
     moved_outcome, tomorrow_priorities
   ) values (
     '${otherProjectEodId}', '11111111-1111-4111-8111-111111111111', '${otherProjectId}',
-    '${adminId}', 'admin', current_date, 'draft', 'OTHER-PROJECT-SENTINEL-EOD', array['One','Two','Three']
+    '${adminId}', 'admin', timezone((select timezone from public.organizations where id = '11111111-1111-4111-8111-111111111111'), clock_timestamp())::date,
+    'draft', 'OTHER-PROJECT-SENTINEL-EOD', array['One','Two','Three']
   );
 `;

@@ -17,8 +17,19 @@ Static bilingual research-operations workspace for accountable work, traceable e
 - `workspace.html`: administrator workspace
 - `interns.html`: role-specific intern workspace
 - `administration.html`: owner/admin people, access, CRM handoff, archive, and data-transfer workspace
+- `survey.html`: standalone public and invited survey runner
+- `helpcenter.html`: bilingual operational guidance library
+- `Participant_Recruitment_Tracker.html`: focused recruitment tracking surface
 
 Protected pages require an active AOI membership. For local UI review only, append `?preview=1` to `workspace.html`, `interns.html`, or `administration.html`; preview data is synthetic and explicitly labeled.
+
+## Projects And Collaboration
+
+Projects provide explicit organization/project context plus typed milestones, blockers, risks, and evidence-backed decisions. Each project record carries ownership, next action, due or review dates, legal lifecycle transitions, and append-only history. Approved decisions preserve immutable evidence snapshots rather than depending on later mutable source rows.
+
+Contextual collaboration stays beside the authoritative record: named comments and mentions, follow/unfollow, auditable comment revisions, and reasoned handoffs. Today presents a compact role-adaptive work inbox derived from those source records. Collaboration and inbox actions never approve, complete, resolve, or otherwise transition the source workflow.
+
+Apply all files in `supabase/migrations/` in timestamp order before deploying a frontend revision that uses Projects or contextual collaboration. Static Pages deployment does not apply database migrations.
 
 ## Outreach Operations
 
@@ -105,7 +116,10 @@ Never put a Supabase service-role or secret key in `.env.local` variables beginn
 npm run build
 npm run lint
 npm test
+npm run test:e2e
 ```
+
+The repository exercises fresh timestamp-ordered migrations in disposable PostgreSQL instances. Release verification still requires confirming the linked Supabase migration history, a restorable pre-deploy backup, matching frontend/backend revisions, and authenticated owner/admin/intern smoke tests.
 
 ## Wen Intern Seed
 
@@ -130,6 +144,8 @@ This standalone seed never creates users or changes passwords. It is repeatable 
 ## Supabase
 
 Apply `supabase/migrations/` in order. Deploy the privileged user workflow with the Supabase CLI:
+
+The Today Briefing depends on `20260813090909_today_briefing_repair.sql`, which adds the selected-project `rpc_aoi_today_briefing` projection and explicit sample-source mappings. Apply it before treating Briefing values as live; preview data remains visibly labeled and never substitutes for an authenticated failure.
 
 ```bash
 supabase functions deploy admin-create-user --no-verify-jwt

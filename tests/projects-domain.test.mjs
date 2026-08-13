@@ -28,8 +28,9 @@ test("exports testable project domain helpers", () => {
 test("normalizes the mixed RPC snapshot and detail shapes", () => {
   const snapshot = normalizeProjectSnapshot({
     project: { id: "p1", managerId: "u1", plannedFinish: "2026-09-25", updatedAt: "stamp-p" },
-    members: [{ userId: "u1", displayName: "Ada Admin" }, { userId: "u2", displayName: "Ian Intern" }],
+    members: [{ userId: "u1", displayName: "Ada Admin", updated_at: "member-stamp" }, { userId: "u2", displayName: "Ian Intern" }],
     milestones: [{ id: "m1", title: "Review", intended_outcome: "Approved packet", owner_id: "u2", planned_finish: "2026-08-20", progress_percent: 60, acceptance_criteria: "Signed", next_action: "Submit", next_action_due: "2026-08-18", updated_at: "stamp-m" }],
+    eligible_organization_members: [{ user_id: "u3", display_name: "Morgan Example", role: "intern", active: true }],
     blockers: [], risks: [], decisions: [], activity: [{ id: "h1", actor_id: "u1", action: "approve", created_at: "2026-08-12" }],
   });
   assert.deepEqual(Object.fromEntries(Object.entries(snapshot.milestones[0]).filter(([key]) => !key.includes("_"))), {
@@ -37,6 +38,8 @@ test("normalizes the mixed RPC snapshot and detail shapes", () => {
   });
   assert.equal(snapshot.project.managerName, "Ada Admin");
   assert.equal(snapshot.activity[0].actorName, "Ada Admin");
+  assert.equal(snapshot.members[0].updatedAt, "member-stamp");
+  assert.deepEqual(snapshot.eligibleOrganizationMembers, [{ userId: "u3", displayName: "Morgan Example", role: "intern", active: true, projectMemberUpdatedAt: null }]);
 
   const detail = normalizeProjectDetail("decision", {
     record: { id: "d1", title: "Choose", expected_impact: "Traceable result", owner_id: "u2", updated_at: "stamp-d" },
@@ -46,6 +49,7 @@ test("normalizes the mixed RPC snapshot and detail shapes", () => {
       { id: "link-2", evidenceId: "e2", stance: "contradicting", relevance_note: "Limitation", title: "Workflow concern", provenance: "Approved observation", limitations: "One clinic" },
     ],
     snapshots: [{ id: "s1", version: 1, snapshot_data: { title: "Approved choice", statement: "Choose A", alternatives: ["Choose B"], rationale: "Best evidence", expectedImpact: "Faster learning", evidence: [{ sourceId: "e1", stance: "supporting", title: "Observed benefit", provenance: { sourceType: "evidence" }, limitations: "Small sample" }] } }],
+    collaboration: { sourceType: "decision", sourceId: "d1", comments: [{ id: "c1", body: "Review this", authorName: "Ada Admin", createdAt: "2026-08-12" }], isFollowing: true, eligibleCollaborators: [] },
   }, snapshot.members);
   assert.equal(detail.expectedImpact, "Traceable result");
   assert.equal(detail.ownerName, "Ian Intern");
@@ -58,6 +62,7 @@ test("normalizes the mixed RPC snapshot and detail shapes", () => {
   assert.equal(detail.snapshots[0].version, 1);
   assert.equal(detail.snapshots[0].content.statement, "Choose A");
   assert.equal(detail.snapshots[0].evidence.supporting[0].title, "Observed benefit");
+  assert.equal(detail.collaboration.comments[0].body, "Review this");
 });
 
 test("editing an existing decision preserves loaded evidence links unless intentionally changed", () => {
@@ -216,4 +221,10 @@ test("project template is a register and detail pane, not modal-first CRUD", asy
   assert.match(template, /Immutable approved snapshot/);
   assert.match(template, /projectSnapshot\.members/);
   assert.doesNotMatch(template, /modal-backdrop|aria-modal="true"/);
+});
+
+test("project preview uses synthetic collaboration identities", () => {
+  const serialized = JSON.stringify(projects.scopePreviewProject("admin"));
+  for (const synthetic of ["Northstar Sandbox Cooperative", "Lantern Trial Workspace", "Avery Example", "Morgan Example"]) assert.match(serialized, new RegExp(synthetic));
+  for (const identifiable of ["Kayla Tillmon", "HUGE Dental", "Ambiloop U.S. PMF Validation"]) assert.doesNotMatch(serialized, new RegExp(identifiable));
 });

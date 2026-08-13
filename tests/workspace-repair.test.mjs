@@ -197,7 +197,7 @@ test("wires the authoritative task lifecycle through detail, checkpoint, and adm
   assert.match(api, /updateTaskCheckpoint\(taskId, progress, status = null, note = null, expectedUpdatedAt\)[\s\S]*?p_expected_updated_at: expectedUpdatedAt/);
   assert.match(api, /export async function reviewTask\(taskId, action, note, expectedUpdatedAt\)[\s\S]*?rpc\("rpc_aoi_review_task"[\s\S]*?p_expected_updated_at: expectedUpdatedAt/);
 
-  assert.match(workspace, /async selectTask\(task\)[\s\S]*?loadTaskDetail\(task\.id\)/);
+  assert.match(workspace, /async selectTask\(task, \{ preview = this\.preview \} = \{\}\)[\s\S]*?loadTaskDetail\(task\.id\)/);
   assert.match(workspace, /updateTaskCheckpoint\([\s\S]*?this\.selectedTask\.updatedAt/);
   assert.match(workspace, /reviewTask\(this\.selectedTask\.id, action, note, this\.selectedTask\.updatedAt\)/);
   assert.match(workspace, /TASK_STALE_WRITE[\s\S]*?taskCheckpointNotice/);

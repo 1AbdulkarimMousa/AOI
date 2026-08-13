@@ -138,6 +138,10 @@ export const fallbackDashboard = {
     { id: "e1", candidateId: "c1", type: "PMF interview", stance: "supporting", strength: 3, title: "Visibility between visits is a recurring caregiver concern", recordedBy: "Mike", recordedAt: "2026-08-03", consentStatus: "pending", notes: "Discovery conversation only; not clinical evidence." },
     { id: "e2", candidateId: "c4", type: "Contact research", stance: "contradicting", strength: 2, title: "Current social routes are blocked", recordedBy: "Kayla Tillmon", recordedAt: "2026-08-03", consentStatus: "not_applicable", notes: "Do not retry blocked channels without a new route." },
   ],
+  participantRecruitment: [
+    { id: "pr1", participantId: "PR-001", name: "Jordan Example", email: "jordan.research@example.test", phone: "", source: "Facebook", timeZone: "Eastern Time", status: "screening", segment: "Families with Children", consentStatus: "pending", ownerId: "m1", ownerName: "Morgan Example", nextAction: "Confirm eligibility and consent", nextActionDue: "2026-08-14", interviewDate: "", qualificationNotes: "Recent oral-health experience still needs verification.", notes: "Preview-only prospect.", crmContactId: "", respondentId: "", updatedAt: "2026-08-13T09:00:00Z" },
+    { id: "pr2", participantId: "PR-002", name: "Casey Example", email: "casey.research@example.test", phone: "", source: "Referral", timeZone: "Pacific Time", status: "scheduled", segment: "Adult Orthodontic Patients", consentStatus: "granted", ownerId: "preview-admin", ownerName: "Avery Example", nextAction: "Complete the scheduled interview", nextActionDue: "2026-08-15", interviewDate: "2026-08-15", qualificationNotes: "Eligibility and segment verified.", notes: "Preview-only prospect.", crmContactId: "crm-c5", respondentId: "", updatedAt: "2026-08-13T09:30:00Z" },
+  ],
   recommendations: [
     { id: "pool-gap", type: "pipeline", priority: "critical", title: "Rebuild the active prospect pool", reason: "113 active prospects are needed at the assumed 40% conversion rate; the current pool has 70.", action: "Add 43 qualified prospects before sending the next wave." },
     { id: "confirmation-gap", type: "deadline", priority: "critical", title: "Protect the confirmation deadline", reason: "40 low-target confirmations are still missing for 2026-08-20.", action: "Prioritize high-score, contact-ready candidates and assign a dated follow-up." },
@@ -145,6 +149,18 @@ export const fallbackDashboard = {
   ],
   generatedAt: "2026-08-03T19:00:00.000Z",
 };
+
+export function emptyDashboard() {
+  return {
+    organization: { id: null, name: "AOI", slug: "" },
+    project: { id: null, code: "AOI", name: "Loading project", description: "" },
+    metrics: [], tasks: [], samplePlan: [], pmfLayers: [], segments: [], respondents: [], sessions: [], evidence: [],
+    productEvents: [], valueExchange: [], definitions: [], observations: [], hypotheses: [], reviewQueue: [], gateSnapshots: [],
+    activity: [], signals: [], team: [], candidates: [], crmContacts: [], crmActivity: [], outreachEvents: [], evidenceRecords: [],
+    categories: [], recommendations: [], campaign: {}, outreachSummary: {}, participantRecruitment: [], crmProgress: {}, gamification: {}, dailyEod: {},
+    dailyEodReportItems: [], generatedAt: null,
+  };
+}
 
 fallbackDashboard.crmContacts = fallbackDashboard.candidates.map((candidate) => ({
   id: `crm-${candidate.id}`,

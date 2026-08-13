@@ -38,6 +38,8 @@ test("wires exact project RPC names and parameters", async () => {
   assert.match(api, /adminSaveProject\(payload, projectId = null, expectedUpdatedAt = null\)[\s\S]*rpc\("rpc_aoi_admin_save_project"[\s\S]*p_payload: payload[\s\S]*p_project_id: projectId/);
   assert.match(api, /setProjectMember\(projectId, userId, active, responsibility, expectedUpdatedAt = null\)[\s\S]*rpc\("rpc_aoi_admin_set_project_member"[\s\S]*p_responsibility: responsibility/);
   assert.match(api, /transitionProject\(projectId, action, note, expectedUpdatedAt\)[\s\S]*rpc\("rpc_aoi_transition_project"[\s\S]*p_action: action/);
+  assert.match(api, /loadInboxItemDetail\(itemId\)[\s\S]*rpc\("rpc_aoi_inbox_item_detail"/);
+  assert.match(api, /reviseWorkComment\(commentId, body, changeReason\)[\s\S]*rpc\("rpc_aoi_revise_work_comment"/);
 });
 
 test("workspace loads and switches project context independently from dashboard", async () => {
@@ -94,6 +96,8 @@ test("project workspace uses selected-context permissions and real inline admini
   assert.match(template, /transitionActiveProject/);
   assert.match(template, /Project membership/);
   assert.doesNotMatch(workspace, /Project configuration is read-only|Project creation requires/);
+  assert.match(template, /eligibleOrganizationMembers/);
+  assert.doesNotMatch(template, /Organization member ID/);
 });
 
 test("project details expose loading, unavailable, dirty-exit, supersession, and complete snapshot contracts", async () => {
@@ -112,6 +116,15 @@ test("project details expose loading, unavailable, dirty-exit, supersession, and
   assert.match(template, /Replacement approved decision ID/);
   assert.match(workspace, /projectSupersedeDecisionId/);
   for (const field of ["Decision statement", "Alternatives", "Rationale", "Expected impact", "Snapshot evidence", "Provenance", "Limitations"]) assert.match(template, new RegExp(field));
+  const collaboration = template.indexOf("Collaboration");
+  const lifecycle = template.indexOf("Transition note");
+  assert.ok(collaboration > template.indexOf("Review history"));
+  assert.ok(lifecycle > collaboration);
+  assert.match(template, /submitCollaborationComment\(\)/);
+  assert.match(template, /toggleCollaborationFollow\(\)/);
+  assert.match(template, /submitCollaborationHandoff\(\)/);
+  assert.match(template, /saveCommentRevision\(\)/);
+  assert.match(template, /eligibleCollaborators/);
 });
 
 test("project context retry and dashboard consistency follow the selected context contract", async () => {

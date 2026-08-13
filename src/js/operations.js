@@ -36,7 +36,6 @@ const fields = [
   ["sourceUpdatedOn", ["source updated on"]],
 ];
 
-const legacyOutputKeys = new Set(["externalId", "category", "name", "platforms", "reach", "tier", "contactReadiness", "contactChannel", "contactDetail", "sourceUrl", "pmfCandidate", "ownerName", "outreachStatus", "firstOutreach", "nextStepDue"]);
 const booleanFields = new Set(["pmfCandidate", "deckIntroduced", "pmfAsked"]);
 
 function normalizeHeader(value) {
@@ -58,28 +57,36 @@ function parseDelimited(text) {
   let row = [];
   let cell = "";
   let quoted = false;
+  let closedQuote = false;
   for (let index = 0; index < source.length; index += 1) {
     const character = source[index];
     if (character === '"') {
       if (quoted && source[index + 1] === '"') {
         cell += '"';
         index += 1;
+      } else if (!quoted && cell !== "") {
+        throw new Error("CSV_MALFORMED_QUOTE");
       } else {
         quoted = !quoted;
+        closedQuote = !quoted;
       }
     } else if (character === delimiter && !quoted) {
       row.push(removeFormulaGuard(cell));
       cell = "";
+      closedQuote = false;
     } else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && source[index + 1] === "\n") index += 1;
       row.push(removeFormulaGuard(cell));
       if (row.some((value) => value !== "")) rows.push(row);
       row = [];
       cell = "";
+      closedQuote = false;
     } else {
+      if (closedQuote && !quoted) throw new Error("CSV_MALFORMED_QUOTE");
       cell += character;
     }
   }
+  if (quoted) throw new Error("CSV_UNTERMINATED_QUOTE");
   row.push(removeFormulaGuard(cell));
   if (row.some((value) => value !== "")) rows.push(row);
   return rows;
@@ -113,7 +120,7 @@ function parseCandidateMatrix(matrix) {
     }
     const candidate = {};
     for (const [key, aliases] of fields) {
-      if (!legacyOutputKeys.has(key) && !hasField(headerIndex, aliases)) continue;
+      if (!hasField(headerIndex, aliases)) continue;
       const value = key === "name" ? name : valueFor(raw, headerIndex, aliases);
       candidate[key] = booleanFields.has(key) ? booleanValue(value) : key === "priorityScore" && value !== "" ? Number(value) : value;
     }
@@ -134,15 +141,33 @@ export function parseCandidateImport(text) {
       const parsed = JSON.parse(cleanText);
       const records = Array.isArray(parsed) ? parsed : parsed.candidates;
       if (!Array.isArray(records)) return { rows: [], errors: ["JSON must contain an array of candidate records."] };
-      return parseCandidateMatrix([
-        fields.map(([key]) => key),
-        ...records.map((record) => fields.map(([key]) => record[key] ?? "")),
-      ]);
+      const rows = [];
+      const errors = [];
+      records.forEach((record, index) => {
+        const presentFields = fields.filter(([key]) => Object.hasOwn(record, key));
+        const result = parseCandidateMatrix([
+          presentFields.map(([key]) => key),
+          presentFields.map(([key]) => record[key] ?? ""),
+        ]);
+        rows.push(...result.rows);
+        errors.push(...result.errors.map((error) => error.replace("Row 2:", `Row ${index + 2}:`)));
+      });
+      return { rows, errors };
     } catch {
       return { rows: [], errors: ["The JSON file could not be parsed."] };
     }
   }
-  return parseCandidateMatrix(parseDelimited(cleanText));
+  try {
+    return parseCandidateMatrix(parseDelimited(cleanText));
+  } catch (reason) {
+    if (reason instanceof Error && reason.message === "CSV_UNTERMINATED_QUOTE") {
+      return { rows: [], errors: ["The CSV contains an unterminated quoted field."] };
+    }
+    if (reason instanceof Error && reason.message === "CSV_MALFORMED_QUOTE") {
+      return { rows: [], errors: ["The CSV contains malformed quoted field syntax."] };
+    }
+    throw reason;
+  }
 }
 
 export async function parseCandidateFile(file, { readXlsx = readXlsxFile } = {}) {
@@ -160,7 +185,8 @@ export async function parseCandidateFile(file, { readXlsx = readXlsxFile } = {})
 export function buildCandidateExport(candidates) {
   const keys = fields.map(([key]) => key);
   const csv = `\uFEFF${keys.join(",")}\r\n${candidates.map((candidate) => keys.map((key) => csvCell(candidate[key])).join(",")).join("\r\n")}`;
-  return { csv, json: JSON.stringify(candidates, null, 2) };
+  const portable = candidates.map((candidate) => Object.fromEntries(keys.filter((key) => candidate[key] !== undefined).map((key) => [key, candidate[key]])));
+  return { csv, json: JSON.stringify(portable, null, 2) };
 }
 
 export function buildRecommendations(input) {

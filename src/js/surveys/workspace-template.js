@@ -73,6 +73,7 @@ const surveyWorkspaceTemplateBase = String.raw`
 </div>`;
 
 export const surveyWorkspaceTemplate = surveyWorkspaceTemplateBase
+  .replace('<template x-for="version in surveyWorkspace.versions" :key="version.id"><div>', '<template x-for="version in surveyWorkspace.versions" :key="version.id"><div :class="surveyRequestedVersionId===version.id&&\'is-requested\'" :tabindex="surveyRequestedVersionId===version.id?0:null">')
   .replace(
     '<span x-text="link.responseCount+\' responses\'"></span></div></template></article>',
     '<span x-text="link.responseCount+\' responses\'"></span><button x-show="access.role===\'admin\' && link.status===\'active\'" class="text-button" @click="changeSurveyLinkStatus(link,\'paused\')">Pause</button><button x-show="access.role===\'admin\' && link.status===\'paused\'" class="text-button" @click="changeSurveyLinkStatus(link,\'active\')">Resume</button><button x-show="access.role===\'admin\' && [\'active\',\'paused\'].includes(link.status)" class="text-button danger" @click="changeSurveyLinkStatus(link,\'revoked\')">Revoke</button></div></template></article>',
