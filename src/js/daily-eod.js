@@ -36,17 +36,21 @@ export function createDailyEodDraft(values = {}) {
 }
 
 export function validateDailyEodBrief(brief) {
-  const errors = [];
-  if (!String(brief.engagementManagerId || "").trim()) errors.push("Choose the Engagement Manager.");
-  if (!String(brief.personInChargeId || "").trim()) errors.push("Choose the Person In Charge.");
+  return Object.values(validateDailyEodFields(brief));
+}
+
+export function validateDailyEodFields(brief) {
+  const errors = {};
+  if (!String(brief.engagementManagerId || "").trim()) errors.engagementManagerId = "Choose the Engagement Manager.";
+  if (!String(brief.personInChargeId || "").trim()) errors.personInChargeId = "Choose the Person In Charge.";
   for (const [field, message] of requiredTextFields) {
-    if (!String(brief[field] || "").trim()) errors.push(message);
+    if (!String(brief[field] || "").trim()) errors[field] = message;
   }
   const owners = brief.executiveOwners || [];
-  if (!owners.length || (owners.includes("None") && owners.length > 1)) errors.push("Choose executive support or None.");
+  if (!owners.length || (owners.includes("None") && owners.length > 1)) errors.executiveOwners = "Choose executive support or None.";
   const priorities = brief.tomorrowPriorities || [];
-  if (priorities.length !== 3 || priorities.some((priority) => !String(priority || "").trim())) errors.push("Add exactly three priorities for tomorrow.");
-  if (!["on_track", "at_risk", "off_track"].includes(brief.projectStatus)) errors.push("Choose the project status.");
+  if (priorities.length !== 3 || priorities.some((priority) => !String(priority || "").trim())) errors.tomorrowPriorities = "Add exactly three priorities for tomorrow.";
+  if (!["on_track", "at_risk", "off_track"].includes(brief.projectStatus)) errors.projectStatus = "Choose the project status.";
   const evidence = (brief.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim());
   const validEvidence = evidence.length > 0 && evidence.every((link) => {
     if (!String(link.label || "").trim()) return false;
@@ -56,8 +60,39 @@ export function validateDailyEodBrief(brief) {
       return false;
     }
   });
-  if (!validEvidence) errors.push("Add at least one labeled http(s) evidence link.");
+  if (!validEvidence) errors.evidenceLinks = "Add at least one labeled http(s) evidence link.";
   return errors;
+}
+
+export function createDailyEodDraftKey(userId, projectId, serverDate) {
+  if (![userId, projectId, serverDate].every((value) => String(value || "").trim())) return "";
+  return `aoi:eod-draft:${userId}:${projectId}:${serverDate}`;
+}
+
+export function readDailyEodDraft(storage, key) {
+  if (!storage || !key) return null;
+  try {
+    const value = JSON.parse(storage.getItem(key));
+    return value?.draft && value?.savedAt ? { ...value, draft: createDailyEodDraft(value.draft) } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDailyEodDraft(storage, key, draft, savedAt = new Date().toISOString()) {
+  if (!storage || !key) return;
+  try {
+    storage.setItem(key, JSON.stringify({ savedAt, draft: createDailyEodDraft(draft) }));
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+export function isLegacyEvidenceException(brief) {
+  return brief?.workflowStatus === "submitted"
+    && brief?.legacyEvidenceMissing === true
+    && !(brief.evidenceLinks || []).length;
 }
 
 export function toggleExecutiveOwner(selected, owner) {

@@ -46,7 +46,7 @@ import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues
 import { shouldConfirmSurveyRoute } from "./surveys/analysis.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, hydrateResearchRevisionForm, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
-import { createDailyEodDraft, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, toggleExecutiveOwner, validateDailyEodBrief } from "./daily-eod.js";
+import { createDailyEodDraft, createDailyEodDraftKey, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, isLegacyEvidenceException, readDailyEodDraft, toggleExecutiveOwner, validateDailyEodBrief, validateDailyEodFields, writeDailyEodDraft } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 import { createChatState } from "./chat.js";
@@ -235,6 +235,11 @@ export function registerWorkspace(Alpine) {
       dailyEodForm: createDailyEodDraft(),
       dailyEodNotice: null,
       dailyEodError: "",
+      dailyEodState: "uninitialized",
+      dailyEodFieldErrors: {},
+      dailyEodRecovery: null,
+      dailyEodRecoveryTimer: null,
+      dailyEodBeforeUnloadHandler: null,
       savingDailyEod: false,
       dailyEodTeamFilter: "all",
       selectedDailyEod: null,
@@ -257,7 +262,7 @@ export function registerWorkspace(Alpine) {
       passwordChanging: false,
       passwordChangeForm: { currentPassword: "", password: "", confirmation: "" },
       savingDailyEodAdmin: false,
-      dailyEodReportFilters: { search: "", fromDate: "", toDate: "", authorRole: "", projectStatus: "", workflowStatus: "" },
+      dailyEodReportFilters: { search: "", authorId: "", engagementManagerId: "", personInChargeId: "", projectId: "", projectLifecycle: "", fromDate: "", toDate: "", authorRole: "", projectStatus: "", workflowStatus: "" },
       dailyEodReports: { items: [], total: 0, page: 1, pageSize: 25 },
       dailyEodReportError: "",
       loadingDailyEodReports: false,
@@ -316,6 +321,7 @@ export function registerWorkspace(Alpine) {
            generatedAt: previewProject.snapshot.generatedAt,
          });
          this.hydrateDailyEod(this.data.dailyEod);
+         this.setupDailyEodRecovery();
          this.openRequestedCrmContact(requestedContactId);
          if (requestedTaskId) this.openRequestedTask(requestedTaskId);
          if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
@@ -358,6 +364,7 @@ export function registerWorkspace(Alpine) {
          if (requestedRecordType && requestedRecordId) this.openRequestedCollectRecord(requestedRecordType, requestedRecordId);
          if (route.projectRecordType && route.projectRecordId) this.openRequestedProjectRecord(route.projectRecordType, route.projectRecordId);
         await this.refreshDailyEod();
+        this.setupDailyEodRecovery();
         this.setupDailyEodRefresh();
         if (this.view === "eod") await this.searchDailyEodReports(1);
         await this.initializeChat();
@@ -373,8 +380,10 @@ export function registerWorkspace(Alpine) {
       this.dashboardRefreshSequence += 1;
       this.projectDetailRequest += 1;
       window.clearTimeout(this.dailyEodRefreshTimer);
+      window.clearTimeout(this.dailyEodRecoveryTimer);
       if (this.dailyEodVisibilityHandler) document.removeEventListener("visibilitychange", this.dailyEodVisibilityHandler);
       if (this.dailyEodFocusHandler) window.removeEventListener("focus", this.dailyEodFocusHandler);
+      if (this.dailyEodBeforeUnloadHandler) window.removeEventListener("beforeunload", this.dailyEodBeforeUnloadHandler);
       if (this.routePopstateHandler) window.removeEventListener("popstate", this.routePopstateHandler);
       this.destroyChat();
       if (this.profilePhotoPreview) URL.revokeObjectURL(this.profilePhotoPreview);
@@ -391,6 +400,9 @@ export function registerWorkspace(Alpine) {
       if (!value) return "No date";
       const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
       return Number.isNaN(parsed.getTime()) ? "Invalid date" : new Intl.DateTimeFormat(this.locale, { month: "short", day: "numeric" }).format(parsed);
+    },
+    formatDailyEodTimestamp(value) {
+      return formatDailyEodTimestamp(value, this.locale, this.dailyEod.timezone || "UTC");
     },
     relativeTime(value) {
       const minutes = Math.max(1, Math.round((new Date(this.data.generatedAt).getTime() - new Date(value).getTime()) / 60000));
@@ -421,6 +433,9 @@ export function registerWorkspace(Alpine) {
     get dailyEodMembers() { return this.dailyEod.members || []; },
     get dailyEodUserId() { return this.preview ? (this.expectedRole === "admin" ? "preview-admin" : "m1") : this.access?.userId; },
     get dailyEodLocked() { return this.dailyEodForm.workflowStatus === "completed"; },
+    get dailyEodLegacyEvidence() { return isLegacyEvidenceException(this.selectedDailyEod); },
+    get dailyEodRecoveryKey() { return createDailyEodDraftKey(this.dailyEodUserId, this.dailyEod.projectId || this.dailyEod.myBrief?.projectId, this.dailyEod.serverDate); },
+    dailyEodFieldError(field) { return this.dailyEodFieldErrors[field] || ""; },
     get dailyEodAttention() { return dailyEodAttentionCount(this.dailyEod, this.access?.role, this.dailyEodUserId); },
     get showPasswordReminder() {
       return !this.preview && shouldShowPasswordReminder({
@@ -592,6 +607,7 @@ export function registerWorkspace(Alpine) {
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, route.view === "research" && route.researchTab === "surveys", this.surveyDirty)
         && !await this.confirmSurveyNavigation()) return false;
       if (this.view === "projects" && route.view !== "projects" && !await this.confirmProjectNavigation()) return false;
+      if (this.view === "eod" && route.view !== "eod" && !this.confirmDailyEodNavigation()) return false;
       if (this.view === "projects" && route.view !== "projects") this.closeProjectRecord(false);
       this.applyWorkspaceRoute(route);
       this.replaceWorkspaceLocation();
@@ -835,6 +851,8 @@ export function registerWorkspace(Alpine) {
     async changeProject(projectId, { updateHistory = true } = {}) {
       if (!projectId || projectId === this.projectSwitcherValue) return true;
       if (!await this.confirmProjectSwitch()) return false;
+      if (!this.confirmDailyEodNavigation()) return false;
+      this.persistDailyEodRecovery();
       this.closeProjectRecord(false);
       this.projectLoading = true;
       this.projectError = "";
@@ -850,7 +868,12 @@ export function registerWorkspace(Alpine) {
           this.syncAccessToProjectContext();
           this.projectNotice = { tone: "success", text: "Project selected. Refreshing dashboard, inbox, and project data." };
           if (updateHistory) this.replaceWorkspaceLocation();
-          const refreshes = await Promise.allSettled([this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectContext.selectedProjectId)]);
+          this.dailyEodRefreshSequence += 1;
+          this.dailyEodReportsSequence += 1;
+          this.dailyEodReportsLoaded = false;
+          this.dailyEodState = "loading";
+          this.data.dailyEod = {};
+          const refreshes = await Promise.allSettled([this.refreshDashboard({ refreshInbox: false }), this.refreshInbox(), this.refreshProjectSnapshot(this.projectContext.selectedProjectId), this.refreshDailyEod(), this.searchDailyEodReports(1)]);
           if (refreshes.some((result) => result.status === "rejected" || result.value === false)) {
             this.projectReconciliationWarning = "Project selected. Some workspace data could not be refreshed; retry reconciliation without changing context.";
           }
@@ -1861,6 +1884,50 @@ export function registerWorkspace(Alpine) {
       const untilDue = Number.isFinite(dueAt) && dueAt > Date.now() ? dueAt - Date.now() + 1000 : Infinity;
       this.dailyEodRefreshTimer = setTimeout(() => this.refreshDailyEod({ preserveDraft: true }), Math.max(1000, Math.min(300000, untilDue)));
     },
+    setupDailyEodRecovery() {
+      this.dailyEodBeforeUnloadHandler ||= (event) => {
+        if (!this.dailyEodDirty) return;
+        this.persistDailyEodRecovery();
+        event.preventDefault();
+        event.returnValue = "";
+      };
+      window.addEventListener("beforeunload", this.dailyEodBeforeUnloadHandler);
+      if (typeof this.$watch === "function") {
+        this.$watch("dailyEodForm", () => {
+          if (!this.dailyEodDirty) return;
+          window.clearTimeout(this.dailyEodRecoveryTimer);
+          this.dailyEodRecoveryTimer = setTimeout(() => this.persistDailyEodRecovery(), 300);
+        });
+      }
+    },
+    confirmDailyEodNavigation() {
+      if (!this.dailyEodDirty) return true;
+      const confirmed = globalThis.confirm("Leave this EOD brief? Your unsaved work will remain available for recovery.");
+      if (confirmed) this.persistDailyEodRecovery();
+      return confirmed;
+    },
+    persistDailyEodRecovery() {
+      if (!this.dailyEodDirty || !this.dailyEodRecoveryKey) return;
+      writeDailyEodDraft(globalThis.localStorage, this.dailyEodRecoveryKey, this.dailyEodForm);
+    },
+    recoverDailyEodDraft() {
+      if (!this.dailyEodRecovery?.draft) return;
+      this.dailyEodForm = createDailyEodDraft(this.dailyEodRecovery.draft);
+      this.dailyEodRecovery = null;
+      this.dailyEodDirty = true;
+      this.dailyEodNotice = { tone: "warning", text: "Recovered unsaved work. Review it against the current server record before saving." };
+    },
+    discardDailyEodRecovery() {
+      if (this.dailyEodRecoveryKey) globalThis.localStorage.removeItem(this.dailyEodRecoveryKey);
+      this.dailyEodRecovery = null;
+    },
+    markDailyEodDirty() {
+      this.dailyEodDirty = true;
+      this.dailyEodFieldErrors = {};
+    },
+    focusDailyEodField(field) {
+      document.querySelector(`.eod-layout [data-eod-field="${field}"]`)?.focus();
+    },
     hydrateDailyEod(snapshot = {}, { preserveDraft = false } = {}) {
       const localDraft = this.dailyEodForm;
       const incomingScope = `${snapshot?.serverDate || ""}:${snapshot?.projectId || snapshot?.myBrief?.projectId || ""}`;
@@ -1879,27 +1946,31 @@ export function registerWorkspace(Alpine) {
         this.dailyEodNotice = { tone: "warning", text: "The EOD workday or project changed. The previous draft was not carried into the new brief." };
       }
       this.dailyEodDraftScope = incomingScope;
-      if (!keepDraft) this.dailyEodDirty = false;
+      if (!keepDraft) {
+        this.dailyEodDirty = false;
+        this.dailyEodRecovery = readDailyEodDraft(globalThis.localStorage, this.dailyEodRecoveryKey);
+      }
+      this.dailyEodState = "ready";
     },
     toggleDailyEodOwner(owner, target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       form.executiveOwners = toggleExecutiveOwner(form.executiveOwners, owner);
-      if (target === "own") this.dailyEodDirty = true;
+      if (target === "own") this.markDailyEodDirty();
     },
     addDailyEodEvidence(target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       form.evidenceLinks.push({ sourceType: "onedrive", label: "", url: "" });
-      if (target === "own") this.dailyEodDirty = true;
+      if (target === "own") this.markDailyEodDirty();
     },
     removeDailyEodEvidence(index, target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       if (form.evidenceLinks.length === 1) {
         form.evidenceLinks.splice(0, 1, { sourceType: "onedrive", label: "", url: "" });
-        if (target === "own") this.dailyEodDirty = true;
+        if (target === "own") this.markDailyEodDirty();
         return;
       }
       form.evidenceLinks.splice(index, 1);
-      if (target === "own") this.dailyEodDirty = true;
+      if (target === "own") this.markDailyEodDirty();
     },
     async saveDailyEod(workflowStatus) {
       const payload = {
@@ -1910,9 +1981,13 @@ export function registerWorkspace(Alpine) {
         scopeProjectId: this.dailyEod.projectId || this.dailyEod.myBrief?.projectId,
       };
       if (workflowStatus === "submitted") {
-        const errors = validateDailyEodBrief(payload);
+        this.dailyEodFieldErrors = validateDailyEodFields(payload);
+        const errors = Object.values(this.dailyEodFieldErrors);
         if (errors.length) {
-          this.dailyEodNotice = { tone: "error", text: errors.join(" ") };
+          this.dailyEodNotice = { tone: "error", text: `Review ${errors.length} required ${errors.length === 1 ? "field" : "fields"} before submitting.` };
+          this.$nextTick(() => {
+            document.querySelector("#eod-error-summary")?.focus();
+          });
           return;
         }
       }
@@ -1952,6 +2027,8 @@ export function registerWorkspace(Alpine) {
         this.dailyEodConflictDraft = null;
         this.dailyEodConflictLoaded = false;
         this.dailyEodDirty = false;
+        this.dailyEodFieldErrors = {};
+        this.discardDailyEodRecovery();
         this.dailyEodNotice = { tone: "success", text: workflowStatus === "submitted" ? "EOD brief submitted for administrator check." : "Draft saved. Your daily requirement is complete only after submission." };
       } catch (reason) {
         if (reason instanceof Error && reason.message.includes("EOD_STALE_WRITE")) {
@@ -2081,7 +2158,7 @@ export function registerWorkspace(Alpine) {
         ...this.dailyEodAdminForm,
         evidenceLinks: (this.dailyEodAdminForm.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim()),
       };
-      if (["submitted", "completed"].includes(this.selectedDailyEod.workflowStatus) || action === "complete") {
+      if ((["submitted", "completed"].includes(this.selectedDailyEod.workflowStatus) || action === "complete") && !this.dailyEodLegacyEvidence) {
         const errors = validateDailyEodBrief(payload);
         if (errors.length) {
           this.dailyEodAdminNotice = { tone: "error", text: errors.join(" ") };
@@ -2151,6 +2228,7 @@ export function registerWorkspace(Alpine) {
     async refreshDailyEod({ preserveDraft = false, throwOnError = false } = {}) {
       const sequence = ++this.dailyEodRefreshSequence;
       this.dailyEodError = "";
+      this.dailyEodState = "loading";
       try {
         const snapshot = await loadDailyEod();
         if (sequence !== this.dailyEodRefreshSequence) return false;
@@ -2159,6 +2237,7 @@ export function registerWorkspace(Alpine) {
       } catch (reason) {
         if (sequence !== this.dailyEodRefreshSequence) return false;
         this.dailyEodError = readableError(reason, "The EOD brief is temporarily unavailable.");
+        this.dailyEodState = "failed";
         if (throwOnError) throw reason;
         return false;
       } finally {
@@ -2238,6 +2317,8 @@ export function registerWorkspace(Alpine) {
       this.showToast(this.t("exportSuccess"), this.t("demoNotice"));
     },
     async logout() {
+      if (!this.confirmDailyEodNavigation()) return;
+      this.persistDailyEodRecovery();
       globalThis.sessionStorage.removeItem(this.researchDraftStorageKey());
       await this.destroyChat();
       await signOut();

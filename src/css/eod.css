@@ -1,0 +1,76 @@
+/* EOD accessibility and responsive repair. */
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+.eod-page { color: var(--ink); }
+.eod-loading { min-height: 112px; display: grid; place-content: center start; gap: 7px; padding: 24px; }
+.eod-loading span { color: var(--ink-soft); }
+.eod-recovery { align-items: center; justify-content: space-between; }
+.eod-recovery > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.eod-error-summary { display: grid; gap: 5px; }
+.eod-error-summary:focus { outline: 3px solid var(--rose); outline-offset: 3px; }
+.eod-field-error { color: var(--rose); font-size: 13px; line-height: 1.45; }
+.eod-legacy-warning { display: grid; gap: 5px; margin: 0 0 16px; }
+
+.eod-form label, .eod-report-filters label, .eod-admin-actions label { color: var(--ink); font-size: 14px; line-height: 1.45; }
+.eod-form input:not([type="checkbox"]):not([type="radio"]), .eod-form select, .eod-form textarea,
+.eod-report-filters input, .eod-report-filters select, .eod-admin-actions input {
+  min-height: 46px;
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--ink) 55%, var(--surface));
+  font-size: 16px;
+  line-height: 1.5;
+}
+.eod-form textarea { min-height: 104px; padding-block: 11px; }
+.eod-form [aria-invalid="true"] { border-color: var(--rose); box-shadow: 0 0 0 2px color-mix(in srgb, var(--rose) 22%, transparent); }
+.eod-owner-options label, .eod-status-options label, .eod-add-evidence, .eod-team-list > button, .eod-report-open { min-height: 44px; }
+.eod-owner-options label { padding: 10px 12px; }
+.eod-owner-options input { width: 20px; height: 20px; }
+.eod-section-heading p, .eod-date-lockup span, .eod-date-lockup small, .eod-status-rail small, .eod-report-table small, .eod-audit strong, .eod-audit span, .eod-audit small { font-size: 12px; }
+.eod-section-heading h2 { font-size: 18px; }
+.eod-status-options b, .eod-status-rail strong, .eod-team-list strong, .eod-report-table strong { font-size: 14px; }
+.eod-status-options small, .eod-status-rail p, .eod-section-copy, .eod-form-actions > span, .eod-team-list small, .eod-team-list > button > span:last-child, .eod-pagination span { font-size: 13px; }
+
+.eod-report-table { overflow-x: visible; }
+.eod-report-table table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.eod-report-table th { padding: 12px 18px; background: var(--surface-muted); color: var(--ink); font-size: 12px; text-align: left; text-transform: uppercase; }
+.eod-report-table td { padding: 14px 18px; border-top: 1px solid var(--line-strong); vertical-align: middle; overflow-wrap: anywhere; }
+.eod-report-table td > strong, .eod-report-table td > small, .eod-report-open > * { display: block; }
+.eod-report-open { width: 100%; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.eod-report-open:hover strong { text-decoration: underline; text-underline-offset: 3px; }
+.eod-report-open:focus-visible { outline: 3px solid var(--orange-dark); outline-offset: 5px; }
+
+@media (max-width: 1180px) {
+  .eod-layout { grid-template-columns: minmax(0, 1fr); }
+  .eod-status-rail { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .eod-status-rail section { border-top: 0; border-inline-start: 1px solid var(--line); }
+  .eod-status-rail section:first-child { border-inline-start: 0; }
+  .eod-evidence-row { grid-template-columns: minmax(120px, .65fr) minmax(140px, .8fr) minmax(0, 1.5fr) 44px; }
+}
+
+@media (max-width: 820px) {
+  .eod-field-grid-three, .eod-support-grid { grid-template-columns: minmax(0, 1fr); }
+  .eod-report-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eod-report-filters .button { grid-column: 1 / -1; }
+  .eod-status-rail { grid-template-columns: minmax(0, 1fr); }
+  .eod-status-rail section { border-inline-start: 0; border-top: 1px solid var(--line); }
+}
+
+@media (max-width: 620px) {
+  .eod-intro, .eod-form-top, .eod-form-actions, .eod-recovery { align-items: stretch; flex-direction: column; }
+  .eod-form-top, .eod-form-fields, .eod-form-actions { padding-inline: 16px; }
+  .eod-identity-grid, .eod-field-grid, .eod-status-options, .eod-report-filters { grid-template-columns: minmax(0, 1fr); }
+  .eod-evidence-row { grid-template-columns: minmax(0, 1fr) 44px; }
+  .eod-evidence-row label { grid-column: 1 / -1; }
+  .eod-evidence-row .icon-button { grid-column: 2; grid-row: 1; }
+  .eod-form-actions > div { grid-template-columns: minmax(0, 1fr); }
+  .eod-report-table table, .eod-report-table tbody, .eod-report-table tr, .eod-report-table td { display: block; width: 100%; }
+  .eod-report-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .eod-report-table tr { padding: 12px 16px; border-top: 1px solid var(--line-strong); }
+  .eod-report-table td { display: grid; grid-template-columns: minmax(88px, .4fr) minmax(0, 1fr); gap: 12px; padding: 8px 0; border: 0; }
+  .eod-report-table td::before { content: attr(data-label); color: var(--ink-soft); font-size: 12px; font-weight: 750; text-transform: uppercase; }
+  .eod-pagination { align-items: stretch; flex-direction: column; }
+}
+
+@media (forced-colors: active) {
+  .eod-form input, .eod-form select, .eod-form textarea, .eod-owner-options, .eod-status-options span, .eod-evidence-row, .eod-report-table td { border-color: CanvasText; }
+  .eod-form [aria-invalid="true"] { border: 3px solid Mark; }
+}

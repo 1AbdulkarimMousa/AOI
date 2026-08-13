@@ -1,6 +1,7 @@
 import Alpine from "alpinejs";
 import { createIcons, Sparkles } from "lucide";
 import "../css/aoi.css";
+import "../css/eod.css";
 import { registerDialogManager } from "./dialog-manager.js";
 import { registerSessionGuard } from "./session-guard.js";
 

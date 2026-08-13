@@ -27,6 +27,7 @@ test("ships the complete shared EOD form and administrator oversight", async () 
   assert.match(controller, /adminCompleteDailyEod/);
   assert.match(controller, /searchDailyEodReports/);
   assert.match(controller, /formatDailyEodTimestamp\(value, this\.locale, this\.dailyEod\.timezone/);
+  assert.match(controller, /formatDailyEodTimestamp\(value\)\s*\{/);
   assert.match(controller, /scheduleDailyEodRefresh/);
   assert.match(controller, /visibilitychange/);
   assert.match(controller, /reloadDailyEodConflict/);
@@ -52,10 +53,19 @@ test("ships the complete shared EOD form and administrator oversight", async () 
   assert.match(template, /dailyEodLocked \|\| savingDailyEod/);
   assert.match(template, /Audit history/);
   assert.match(template, /access\.role==='admin'/);
+  assert.match(template, /role="alert" tabindex="-1"/);
+  assert.match(template, /aria-invalid/);
+  assert.match(template, /aria-pressed/);
+  assert.match(template, /<table/);
+  assert.match(template, /Evidence unavailable in imported record/);
+  assert.match(template, /lang="en"/);
 });
 
 test("styles the EOD form for focused desktop and stacked mobile use", async () => {
-  const styles = await readFile(new URL("src/css/aoi.css", root), "utf8");
+  const styles = await Promise.all([
+    readFile(new URL("src/css/aoi.css", root), "utf8"),
+    readFile(new URL("src/css/eod.css", root), "utf8"),
+  ]).then((files) => files.join("\n"));
 
   assert.match(styles, /\.eod-layout/);
   assert.match(styles, /\.eod-form/);
@@ -65,4 +75,16 @@ test("styles the EOD form for focused desktop and stacked mobile use", async () 
   assert.match(styles, /\.eod-drawer-notice[\s\S]*z-index:\s*110/);
   assert.match(styles, /\.eod-status-options input:focus-visible/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.eod-layout/);
+  assert.match(styles, /\.eod-form input[\s\S]*font-size:\s*16px/);
+  assert.match(styles, /@media \(max-width: 1180px\)[\s\S]*\.eod-layout/);
+});
+
+test("protects and recovers unsaved EOD work across navigation and project changes", async () => {
+  const controller = await readFile(new URL("src/js/workspace.js", root), "utf8");
+  assert.match(controller, /beforeunload/);
+  assert.match(controller, /persistDailyEodRecovery/);
+  assert.match(controller, /recoverDailyEodDraft/);
+  assert.match(controller, /discardDailyEodRecovery/);
+  assert.match(controller, /refreshDailyEod/);
+  assert.match(controller, /dailyEodReportsLoaded = false/);
 });

@@ -47,7 +47,7 @@ export const workspaceTemplate = String.raw`
         <nav class="primary-nav" aria-label="Workspace">
           <span class="nav-label">Workspace</span>
           <template x-for="item in navigation" :key="item.id">
-            <button :class="view===item.id && 'active'" :aria-label="item.id==='eod' ? 'End-of-Day Brief' : item.label" @click="setView(item.id)"><span class="nav-symbol" x-text="item.id.slice(0,1).toUpperCase()"></span><span x-text="item.id==='chat' ? t('chat') : item.label"></span><em x-show="item.id==='today'" x-text="data.tasks.length"></em><em x-show="item.id==='eod' && dailyEodAttention" class="nav-alert" x-text="dailyEodAttention"></em><em x-show="item.id==='chat' && totalChatUnread()" class="nav-alert" x-text="totalChatUnread()"></em></button>
+            <button :class="view===item.id && 'active'" :aria-label="item.id==='eod' ? 'End-of-Day Brief'+(dailyEodAttention ? ', '+dailyEodAttention+' items need attention' : '') : item.label" @click="setView(item.id)"><span class="nav-symbol" x-text="item.id.slice(0,1).toUpperCase()"></span><span x-text="item.id==='chat' ? t('chat') : item.label"></span><em x-show="item.id==='today'" x-text="data.tasks.length"></em><em x-show="item.id==='eod' && dailyEodAttention" class="nav-alert" x-text="dailyEodAttention"></em><em x-show="item.id==='chat' && totalChatUnread()" class="nav-alert" x-text="totalChatUnread()"></em></button>
           </template>
           <a :href="helpCenterUrl"><span class="nav-symbol">?</span><span>Help Center</span></a>
           <template x-if="access.role==='admin'">
