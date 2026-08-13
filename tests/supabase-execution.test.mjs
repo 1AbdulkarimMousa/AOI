@@ -471,7 +471,8 @@ test('fresh migrations execute in timestamp order with hardened RPC behavior', {
     assert.match(gate, /observation\.respondent_id is null or exists/);
 
     const reports = await database.functionDefinition('public.rpc_aoi_daily_eod_reports(jsonb,integer,integer)');
-    assert.match(reports, /brief\.project_id = v_project_id/);
+    assert.match(reports, /brief\.organization_id = v_org_id/);
+    assert.match(reports, /audit\.organization_id = brief\.organization_id and audit\.brief_id = brief\.id/);
 
     const replay = await database.functionDefinition('public.rpc_aoi_public_survey_replay(uuid,text,text,text,text)');
     assert.match(replay, /invitation\.invitation_status not in \('revoked', 'bounced'\)/);
