@@ -1175,8 +1175,10 @@ export function registerWorkspace(Alpine) {
       try {
         const detail = normalizeProjectDetail(recordType, await loadProjectRecordDetail(recordType, recordId), this.projectSnapshot?.members);
         if (!this.projectSnapshot || this.projectSnapshot.project?.id !== this.projectSwitcherValue) {
+          const selectedProject = this.projectOptions.find((project) => project.id === this.projectSwitcherValue)
+            || (this.briefingState.project?.id === this.projectSwitcherValue ? this.briefingState.project : null);
           const fallbackSnapshot = {
-            project: this.activeProject || this.briefingState.project,
+            project: selectedProject,
             members: detail.collaboration?.eligibleCollaborators || [],
             milestones: [], blockers: [], risks: [], decisions: [], activity: [],
             generatedAt: new Date().toISOString(),

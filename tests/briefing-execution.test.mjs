@@ -70,6 +70,14 @@ test("Today Briefing derives selected-project facts with role scope", { timeout:
       from (select public.rpc_aoi_today_briefing('${projectId}') payload) briefing
     `, authenticated(adminId)), "t");
     assert.equal(database.query(`
+      select count(*) filter (where item->>'eventType' = 'task_review'
+          and item->>'subject' = 'Admin review fixture') = 1
+        and count(*) filter (where item->>'eventType' = 'task_checkpoint'
+          and item->>'subject' = 'Intern blocked fixture') = 1
+      from (select public.rpc_aoi_today_briefing('${projectId}') payload) briefing,
+        lateral jsonb_array_elements(payload->'activity') item
+    `, authenticated(adminId)), "t");
+    assert.equal(database.query(`
       select not (payload->'activity' @> '[{"subject":"ADMIN-ACTIVITY-SENTINEL"}]'::jsonb)
       from (select public.rpc_aoi_today_briefing('${projectId}') payload) briefing
     `, authenticated(internId)), "t");
@@ -157,9 +165,18 @@ const fixtures = `
   );
   insert into public.activity_events (
     organization_id, project_id, actor_name, actor_initials, action, subject, event_type
+  ) values
+    ('11111111-1111-4111-8111-111111111111', '${projectId}', 'Avery Example', 'AE',
+      'recorded administrator-only project activity', 'ADMIN-ACTIVITY-SENTINEL', 'governance'),
+    ('11111111-1111-4111-8111-111111111111', '${projectId}', 'Migration Test Admin', 'MA',
+      'approved task', 'Admin review fixture', 'task_review'),
+    ('11111111-1111-4111-8111-111111111111', '${projectId}', 'Morgan Example', 'ME',
+      'updated task checkpoint to 25%', 'Intern blocked fixture', 'task_checkpoint');
+  insert into public.task_review_history (
+    organization_id, project_id, task_id, actor_id, action, from_status, to_status, note
   ) values (
-    '11111111-1111-4111-8111-111111111111', '${projectId}', 'Avery Example', 'AE',
-    'recorded administrator-only project activity', 'ADMIN-ACTIVITY-SENTINEL', 'governance'
+    '11111111-1111-4111-8111-111111111111', '${projectId}', '${adminReviewTaskId}', '${adminId}',
+    'approve', 'submitted', 'approved', 'Synthetic duplicate review fixture.'
   );
 
   update public.sample_plan_items
