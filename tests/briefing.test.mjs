@@ -86,10 +86,11 @@ test("creates useful role-scoped synthetic briefing previews", () => {
 });
 
 test("wires an action-first briefing without legacy seeded dashboard claims", async () => {
-  const [api, workspace, template] = await Promise.all([
+  const [api, workspace, template, migration] = await Promise.all([
     readFile(new URL("src/js/api.js", root), "utf8"),
     readFile(new URL("src/js/workspace.js", root), "utf8"),
     readFile(new URL("src/js/workspace-template.js", root), "utf8"),
+    readFile(new URL("supabase/migrations/20260813230000_filter_duplicate_briefing_activity.sql", root), "utf8"),
   ]);
 
   assert.match(api, /rpc_aoi_today_briefing/);
@@ -98,6 +99,11 @@ test("wires an action-first briefing without legacy seeded dashboard claims", as
   assert.match(workspace, /briefingPreviewMode/);
   assert.match(template, /briefingState\.preview/);
   assert.match(workspace, /taskDetailReady/);
+  assert.match(workspace, /fallbackSnapshot/);
+  assert.match(workspace, /projectSnapshot\.project\?\.id !== this\.projectSwitcherValue/);
+  assert.match(migration, /event\.event_type not in/);
+  assert.match(migration, /task_review/);
+  assert.match(migration, /task_checkpoint/);
   assert.match(workspace, /data: emptyDashboard\(\)/);
   assert.match(template, /class="briefing-workspace"/);
   assert.match(template, /briefingLoading/);

@@ -1174,6 +1174,16 @@ export function registerWorkspace(Alpine) {
       this.projectRecordType = recordType;
       try {
         const detail = normalizeProjectDetail(recordType, await loadProjectRecordDetail(recordType, recordId), this.projectSnapshot?.members);
+        if (!this.projectSnapshot || this.projectSnapshot.project?.id !== this.projectSwitcherValue) {
+          const fallbackSnapshot = {
+            project: this.activeProject || this.briefingState.project,
+            members: detail.collaboration?.eligibleCollaborators || [],
+            milestones: [], blockers: [], risks: [], decisions: [], activity: [],
+            generatedAt: new Date().toISOString(),
+          };
+          fallbackSnapshot[tab] = [detail];
+          this.projectSnapshot = normalizeProjectSnapshot(fallbackSnapshot);
+        }
         this.selectedProjectRecord = detail;
         this.projectEditorMode = "edit";
         this.hydrateProjectRecordDraft(detail);

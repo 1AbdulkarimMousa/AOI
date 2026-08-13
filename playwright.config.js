@@ -26,6 +26,6 @@ export default defineConfig({
   webServer: {
     command: "GITHUB_ACTIONS=1 npm run preview -- --host 127.0.0.1 --port 4199",
     url: "http://127.0.0.1:4199/AOI/workspace.html?preview=1",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI && !process.env.GITHUB_ACTIONS,
   },
 });
