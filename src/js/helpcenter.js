@@ -61,6 +61,10 @@ function normalizeArticle(article) {
   };
 }
 
+function cloneArticle(article) {
+  return JSON.parse(JSON.stringify(article));
+}
+
 export function registerHelpCenter(Alpine) {
   Alpine.data("helpCenterPage", () => ({
     access: null,
@@ -96,6 +100,9 @@ export function registerHelpCenter(Alpine) {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
       document.documentElement.lang = this.locale;
       window.addEventListener("popstate", () => this.selectFromUrl());
+      this.$watch("category", () => this.syncFiltersToUrl());
+      this.$watch("pmfLayer", () => this.syncFiltersToUrl());
+      this.$watch("status", () => this.syncFiltersToUrl());
       const params = new URLSearchParams(location.search);
       if (params.get("preview") === "1") {
         const role = params.get("role") === "intern" ? "intern" : "admin";
@@ -189,8 +196,21 @@ export function registerHelpCenter(Alpine) {
       }
     },
     selectFromUrl() {
-      const slug = new URLSearchParams(location.search).get("article");
+      const params = new URLSearchParams(location.search);
+      this.category = params.get("category") || "all";
+      this.pmfLayer = params.get("layer") || "all";
+      this.status = this.access?.role === "admin" ? (params.get("status") || "all") : "all";
+      const slug = params.get("article");
       this.selectedArticle = slug ? this.allArticles.find((article) => article.slug === slug) || null : null;
+    },
+    syncFiltersToUrl() {
+      if (!this.ready) return;
+      const url = new URL(location.href);
+      for (const [key, value, defaultValue] of [["category", this.category, "all"], ["layer", this.pmfLayer, "all"], ["status", this.status, "all"]]) {
+        if (value && value !== defaultValue) url.searchParams.set(key, value);
+        else url.searchParams.delete(key);
+      }
+      window.history.replaceState(window.history.state, "", url);
     },
     selectArticle(article) {
       this.selectedArticle = article;
@@ -213,7 +233,7 @@ export function registerHelpCenter(Alpine) {
     openEditor(article = null) {
       if (this.access?.role !== "admin") return;
       this.editorReturnFocus = document.activeElement;
-      this.editorDraft = structuredClone(article || createArticleDraft());
+      this.editorDraft = cloneArticle(article || createArticleDraft());
       this.tagsText = (this.editorDraft.tags || []).join(", ");
       this.editorNotice = null;
       this.publicationNotice = null;

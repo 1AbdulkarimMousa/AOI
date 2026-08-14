@@ -50,7 +50,6 @@ export const workspaceTemplate = String.raw`
           <template x-for="item in navigation" :key="item.id">
             <button :class="view===item.id && 'active'" :aria-label="item.id==='eod' ? 'End-of-Day Brief'+(dailyEodAttention ? ', '+dailyEodAttention+' items need attention' : '') : item.label" @click="setView(item.id)"><span class="nav-symbol" x-text="item.id.slice(0,1).toUpperCase()"></span><span x-text="item.id==='chat' ? t('chat') : item.label"></span><em x-show="item.id==='today'" x-text="data.tasks.length"></em><em x-show="item.id==='eod' && dailyEodAttention" class="nav-alert" x-text="dailyEodAttention"></em><em x-show="item.id==='chat' && totalChatUnread()" class="nav-alert" x-text="totalChatUnread()"></em></button>
           </template>
-          <template x-for="item in navigation.filter(item => ['help-center','administration'].includes(item.id))" :key="item.id"><button :class="view===item.id && 'active'" :aria-current="view===item.id ? 'page' : null" @click="setView(item.id)"><span class="nav-symbol" x-text="item.id==='help-center'?'?':'A'"></span><span x-text="item.label"></span></button></template>
         </nav>
         <div class="sidebar-bottom">
           <button class="ask-aoi" @click="commandOpen=true"><span>⌘</span><div><strong>Ask AOI</strong><small>Search · ⌘K</small></div></button>

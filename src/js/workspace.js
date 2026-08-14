@@ -142,6 +142,7 @@ export function registerWorkspace(Alpine) {
     outreachSection: "pipeline",
     researchTab: "collect",
     projectTab: "overview",
+    supportTab: "overview",
     projectContext: null,
     projectSnapshot: null,
     projectLoading: false,
@@ -681,6 +682,7 @@ export function registerWorkspace(Alpine) {
       this.outreachSection = route.outreachSection;
       this.researchTab = route.researchTab;
       this.projectTab = route.projectTab;
+      this.supportTab = route.supportTab || "overview";
       if (route.relationshipsTab === "recruitment") this.recruitmentMounted = true;
     },
     remountRecruitment() {
@@ -690,7 +692,7 @@ export function registerWorkspace(Alpine) {
     },
 
     async setView(view) {
-      const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : view === "projects" ? this.projectTab : null;
+      const tab = view === "today" ? this.todayTab : view === "relationships" ? this.relationshipsTab : view === "research" ? this.researchTab : view === "projects" ? this.projectTab : view === "administration" ? this.supportTab : null;
       const route = resolveWorkspaceRoute({ view, tab, section: view === "relationships" ? this.outreachSection : null, project: view === "projects" ? this.projectSwitcherValue : null, defaultTodayTab: this.todayTab });
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, route.view === "research" && route.researchTab === "surveys", this.surveyDirty)
         && !await this.confirmSurveyNavigation()) return false;
@@ -782,6 +784,7 @@ export function registerWorkspace(Alpine) {
         if (this.projectSwitcherValue) url.searchParams.set("project", this.projectSwitcherValue);
         if (this.selectedProjectRecord?.id && this.projectRecordType) url.searchParams.set(this.projectRecordType, this.selectedProjectRecord.id);
       }
+      if (this.view === "administration" && this.supportTab !== "overview") url.searchParams.set("tab", this.supportTab);
       if (this.view === "relationships" && this.relationshipsTab === "contacts" && contactId) url.searchParams.set("contact", contactId);
       if (replace) window.history.replaceState({}, "", url);
       else window.history.pushState({}, "", url);

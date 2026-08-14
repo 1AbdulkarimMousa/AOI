@@ -130,6 +130,9 @@ export function registerAdministration(Alpine) {
     async init() {
       document.documentElement.dataset.theme = this.dark ? "dark" : "light";
       document.documentElement.lang = this.locale;
+      window.addEventListener("popstate", () => this.selectSectionFromUrl());
+      this.selectSectionFromUrl();
+      this.$watch("section", () => this.syncSectionToUrl());
       if (new URLSearchParams(location.search).get("preview") === "1") {
         this.preview = true;
         this.access = { userId: "preview-admin", role: "admin", displayName: "AOI Administrator", organizationName: "AOI Technologics", isOwner: true };
@@ -158,6 +161,17 @@ export function registerAdministration(Alpine) {
       }
     },
     get filteredPeople() { return filterAdministrationPeople(this.people, this.filters); },
+    selectSectionFromUrl() {
+      const requested = new URLSearchParams(location.search).get("tab");
+      if (this.sections.some((section) => section.id === requested)) this.section = requested;
+    },
+    syncSectionToUrl() {
+      if (!this.ready) return;
+      const url = new URL(location.href);
+      if (this.section === "overview") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", this.section);
+      window.history.replaceState(window.history.state, "", url);
+    },
     get activePeople() { return this.people.filter((person) => person.membershipStatus === "active"); },
     get archivedPeople() { return this.people.filter((person) => person.membershipStatus === "archived"); },
     get currentUserIsOwner() { return Boolean(this.people.find((person) => person.userId === this.access?.userId)?.isOwner || this.access?.isOwner); },

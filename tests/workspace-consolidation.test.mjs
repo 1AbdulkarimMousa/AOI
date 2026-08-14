@@ -39,6 +39,9 @@ test("resolves canonical consolidated workspace tabs", () => {
   for (const view of ["eod", "chat"]) {
     assert.deepEqual(resolveWorkspaceRoute({ view }), { view, ...defaults, normalize: false });
   }
+  assert.deepEqual(resolveWorkspaceRoute({ view: "administration", tab: "people" }), {
+    view: "administration", ...defaults, supportTab: "people", normalize: false,
+  });
   assert.deepEqual(resolveWorkspaceRoute({ view: "projects", tab: "overview", project: "project-1" }), {
     view: "projects",
     ...defaults,
@@ -139,4 +142,13 @@ test("uses canonical consolidated routes from utility and compatibility pages", 
   assert.match(tracker, /\?view=relationships&tab=recruitment/);
   assert.match(tracker, /\?view=relationships&tab=contacts&contact=/);
   assert.doesNotMatch(tracker, /\?view=crm/);
+});
+
+test("renders shared support destinations once in the workspace navigation", async () => {
+  const template = await readFile(new URL("src/js/workspace-template.js", root), "utf8");
+  const navigation = template.match(/<nav class="primary-nav"[\s\S]*?<\/nav>/)?.[0] || "";
+
+  assert.equal((navigation.match(/navigation\.filter\(item => \['help-center','administration'\]\.includes\(item\.id\)\)/g) || []).length, 0);
+  assert.match(navigation, /x-for="item in navigation"/);
+  assert.match(navigation, /item\.id\.slice\(0,1\)/);
 });

@@ -7,6 +7,7 @@ const RELATIONSHIP_TABS = new Set(["contacts", "recruitment", "outreach"]);
 const RESEARCH_TABS = new Set(["collect", "surveys", "analyze", "reports"]);
 const PROJECT_TABS = new Set(["overview", "milestones", "blockers", "risks", "decisions"]);
 const PROJECT_RECORD_PARAMS = { milestones: "milestone", blockers: "blocker", risks: "risk", decisions: "decision" };
+const ADMINISTRATION_TABS = new Set(["overview", "people", "work", "data", "archive", "guides"]);
 const PRIMARY_VIEWS = new Set(["today", "relationships", "research", "projects", "eod", "chat", "help-center", "administration"]);
 const LEGACY_TODAY_VIEWS = { overview: "briefing", work: "tasks", team: "momentum" };
 const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", imports: "imports" };
@@ -97,6 +98,11 @@ export function resolveWorkspaceRoute({ view, tab, section, project, milestone, 
       projectRecordId: invalidRecords ? null : projectRecordId,
       normalize: normalize || tab !== projectTab || invalidRecords || (!projectRecordType && recordCount > 0) || Boolean(section),
     };
+  }
+
+  if (resolvedView === "administration") {
+    const supportTab = ADMINISTRATION_TABS.has(tab) ? tab : "overview";
+    return { view: resolvedView, ...defaults, supportTab, normalize: normalize || (tab && tab !== supportTab) || Boolean(section) };
   }
 
   return { view: resolvedView, ...defaults, normalize: normalize || Boolean(tab || section) };
