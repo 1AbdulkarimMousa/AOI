@@ -170,9 +170,9 @@ test("ships role-aware workspace, localization, theme, and CSV behavior", async 
   assert.match(workspaceMarkup, /Research sections/);
   assert.match(template, /End-of-Day Brief/);
   assert.match(template, /item\.id==='chat'/);
-  assert.match(controller, /administration\.html/);
-  assert.match(template, /class="admin-nav-group"/);
-  assert.match(styles, /\.admin-nav-group\s*>\s*button/);
+  assert.match(controller, /workspace\.html.*view=administration/);
+  assert.match(template, /view==='administration'/);
+  assert.match(styles, /\.workspace-embedded-surface/);
 });
 
 test("secures administrator user creation in a Supabase Edge Function", async () => {

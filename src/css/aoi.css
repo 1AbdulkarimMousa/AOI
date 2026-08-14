@@ -128,6 +128,16 @@ a {
   min-height: 100vh;
 }
 
+/* Embedded support views inherit the workspace shell navigation. */
+.workspace-embedded-surface .sidebar,
+.workspace-embedded-surface .topbar {
+  display: none;
+}
+
+.workspace-embedded-surface .main-wrap {
+  margin-left: 0;
+}
+
 .sidebar {
   position: fixed;
   z-index: 50;

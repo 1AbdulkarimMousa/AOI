@@ -20,14 +20,22 @@ if (page === "login") {
 }
 
 if (page === "workspace") {
-  const [{ registerWorkspace }, { workspaceTemplate }, { registerParticipantTracker }] = await Promise.all([
+  const [{ registerWorkspace }, { workspaceTemplate }, { registerParticipantTracker }, { registerAdministration }, { administrationTemplate }, { registerHelpCenter }, { helpCenterTemplate }] = await Promise.all([
     import("./workspace.js"),
     import("./workspace-template.js"),
     import("./participant-tracker.js"),
+    import("./administration.js"),
+    import("./administration-template.js"),
+    import("./helpcenter.js"),
+    import("./helpcenter-template.js"),
   ]);
-  document.querySelector("#workspace-app").innerHTML = workspaceTemplate;
+  document.querySelector("#workspace-app").innerHTML = workspaceTemplate
+    .replace("<!-- AOI_WORKSPACE_HELP_CENTER -->", helpCenterTemplate)
+    .replace("<!-- AOI_WORKSPACE_ADMINISTRATION -->", administrationTemplate);
   registerWorkspace(Alpine);
   registerParticipantTracker(Alpine);
+  registerAdministration(Alpine);
+  registerHelpCenter(Alpine);
 }
 
 if (page === "administration") {

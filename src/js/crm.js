@@ -7,11 +7,11 @@ const RELATIONSHIP_TABS = new Set(["contacts", "recruitment", "outreach"]);
 const RESEARCH_TABS = new Set(["collect", "surveys", "analyze", "reports"]);
 const PROJECT_TABS = new Set(["overview", "milestones", "blockers", "risks", "decisions"]);
 const PROJECT_RECORD_PARAMS = { milestones: "milestone", blockers: "blocker", risks: "risk", decisions: "decision" };
-const PRIMARY_VIEWS = new Set(["today", "relationships", "research", "projects", "eod", "chat"]);
+const PRIMARY_VIEWS = new Set(["today", "relationships", "research", "projects", "eod", "chat", "help-center", "administration"]);
 const LEGACY_TODAY_VIEWS = { overview: "briefing", work: "tasks", team: "momentum" };
 const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", imports: "imports" };
 const LEGACY_RESEARCH_VIEWS = { collect: "collect", surveys: "surveys", analyze: "analyze", reports: "reports", pmf: "analyze" };
-const LEGACY_WORKSPACE_VIEWS = { crm: "relationships", "daily-eod": "eod", "end-of-day": "eod" };
+const LEGACY_WORKSPACE_VIEWS = { crm: "relationships", "daily-eod": "eod", "end-of-day": "eod", help: "help-center", helpcenter: "help-center", admin: "administration" };
 
 export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
 

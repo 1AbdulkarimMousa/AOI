@@ -94,7 +94,7 @@ test("rejects tabs and sections outside their owning workspace", () => {
   });
 });
 
-test("exposes six primary destinations with local workflow tabs", async () => {
+test("exposes shared operational and support destinations with local workflow tabs", async () => {
   const [controller, workspaceTemplate, crmTemplate, pmfTemplate, surveyTemplate] = await Promise.all([
     readFile(new URL("src/js/workspace.js", root), "utf8"),
     readFile(new URL("src/js/workspace-template.js", root), "utf8"),
@@ -104,7 +104,8 @@ test("exposes six primary destinations with local workflow tabs", async () => {
   ]);
   const templates = workspaceTemplate + crmTemplate + pmfTemplate + surveyTemplate;
 
-  assert.match(controller, /navigation:\s*\[\s*\{ id: "today", label: "Today" \},\s*\{ id: "relationships", label: "Relationships" \},\s*\{ id: "research", label: "Research" \},\s*\{ id: "projects", label: "Projects" \},\s*\{ id: "eod", label: "End-of-Day Brief" \},\s*\{ id: "chat", label: "Chat" \},?\s*\]/);
+  assert.match(controller, /\{ id: "help-center", label: "Help Center" \}/);
+  assert.match(controller, /\{ id: "administration", label: "Administration" \}/);
   assert.match(templates, /aria-label="Today sections"/);
   assert.match(templates, /aria-label="Relationship sections"/);
   assert.match(templates, /aria-label="Research sections"/);

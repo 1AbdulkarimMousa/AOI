@@ -18,14 +18,14 @@ test("ships a dedicated, admin-protected Administration entry", async () => {
   assert.match(vite, /administration:\s*resolve/);
 });
 
-test("moves Administration out of the workspace and links to the standalone page", async () => {
+test("keeps Administration reachable from the shared workspace", async () => {
   const [template, controller] = await Promise.all([
     readFile(new URL("src/js/workspace-template.js", root), "utf8"),
     readFile(new URL("src/js/workspace.js", root), "utf8"),
   ]);
 
-  assert.match(template, /administrationUrl/);
-  assert.doesNotMatch(template, /x-show="view==='admin'/);
+  assert.match(template, /view==='administration'/);
+  assert.match(controller, /workspace\.html.*view=administration/);
   assert.doesNotMatch(controller, /submitUser\(\)/);
 });
 
@@ -43,7 +43,7 @@ test("provides people, work, data, archive, and guide workflows", async () => {
   assert.match(template, /Archive person/);
   assert.match(template, /role="dialog"/);
   assert.match(controller, /requireWorkspaceAccess/);
-  assert.match(controller, /access\.role !== "admin"/);
+  assert.match(controller, /\['admin', 'intern'\]\.includes\(access\.role\)/);
   assert.match(controller, /acceptanceCriteria/);
   assert.match(controller, /trapDrawerFocus/);
   assert.match(styles, /\.administration-shell/);

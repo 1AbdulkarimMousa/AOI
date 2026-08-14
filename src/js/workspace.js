@@ -118,8 +118,8 @@ export function registerWorkspace(Alpine) {
     ...createCollaborationState(),
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
-    administrationUrl: pageUrl(import.meta.env.BASE_URL, "administration.html"),
-    helpCenterUrl: pageUrl(import.meta.env.BASE_URL, "helpcenter.html"),
+    administrationUrl: `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=administration`,
+    helpCenterUrl: `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=help-center`,
      participantTrackerUrl: pageUrl(import.meta.env.BASE_URL, "Participant_Recruitment_Tracker.html"),
     access: null,
     data: emptyDashboard(),
@@ -283,6 +283,8 @@ export function registerWorkspace(Alpine) {
         { id: "projects", label: "Projects" },
         { id: "eod", label: "End-of-Day Brief" },
         { id: "chat", label: "Chat" },
+        { id: "help-center", label: "Help Center" },
+        { id: "administration", label: "Administration" },
       ],
 
     async init() {
@@ -700,6 +702,7 @@ export function registerWorkspace(Alpine) {
       if (this.view === "eod" && !this.dailyEodReportsLoaded) this.searchDailyEodReports();
       if (this.isSurveyWorkspaceActive) this.openSurveyWorkspace();
       if (this.view === "chat") this.initializeChat().then(() => this.markSelectedChatRead());
+      if (this.view === "help-center") this.$nextTick(() => document.querySelector(".helpcenter-shell input")?.focus());
       if (this.view === "projects" && !this.projectSnapshot) this.refreshProjectSnapshot();
       this.mobileNav = false;
       this.commandOpen = false;

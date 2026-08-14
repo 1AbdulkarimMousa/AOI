@@ -199,7 +199,33 @@ test("dark mode and reduced motion remain usable at browser zoom", async ({ page
   await page.getByRole("button", { name: "Dark mode" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.evaluate(() => { document.body.style.zoom = "2"; });
-  await expect(page.locator(".main-wrap")).toBeVisible();
+  await expect(page.locator(".main-wrap:visible").first()).toBeVisible();
   const motion = await page.locator(".progress-fill").first().evaluate((element) => getComputedStyle(element).transitionDuration);
   expect(["0s", "0.001s"]).toContain(motion);
+});
+
+test("workspace keeps Help Center and Administration on the shared route", async ({ page }) => {
+  await page.goto("/AOI/workspace.html?preview=1&view=help-center");
+  await expect(page.locator(".helpcenter-shell")).toBeVisible();
+  const outerMenu = page.getByRole("banner").getByRole("button", { name: "Open menu" });
+  if (await outerMenu.isVisible()) await outerMenu.click();
+  await expect(page.locator("#workspace-sidebar").getByRole("button", { name: "Help Center", exact: true })).toHaveClass(/active/);
+  await expect(page).toHaveURL(/workspace\.html\?preview=1&view=help-center/);
+
+  await page.locator("#workspace-sidebar").getByRole("button", { name: "Administration", exact: true }).click();
+  await expect(page.locator(".administration-shell")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Keep people, access, and handoffs accountable/ })).toBeVisible();
+  await expect(page).toHaveURL(/workspace\.html\?preview=1&view=administration/);
+  await page.goBack();
+  await expect(page).toHaveURL(/workspace\.html\?preview=1&view=help-center/);
+  await expect(page.locator(".helpcenter-shell")).toBeVisible();
+});
+
+test("shared support destinations are usable at narrow width", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "Mobile-only containment contract.");
+  for (const view of ["help-center", "administration"]) {
+    await page.goto(`/AOI/workspace.html?preview=1&view=${view}`);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, view).toBeLessThanOrEqual(1);
+  }
 });

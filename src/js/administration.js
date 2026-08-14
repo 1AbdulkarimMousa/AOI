@@ -144,7 +144,7 @@ export function registerAdministration(Alpine) {
           location.replace(this.loginUrl);
           return;
         }
-        if (access.role !== "admin") {
+        if (!['admin', 'intern'].includes(access.role)) {
           location.replace(pageUrl(import.meta.env.BASE_URL, routeForRole(access.role)));
           return;
         }
