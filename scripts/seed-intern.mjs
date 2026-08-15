@@ -10,10 +10,11 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUP
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const bootstrapPassword = process.env.AOI_BOOTSTRAP_PASSWORD ?? "";
 const resetAllPasswords = process.env.AOI_RESET_ALL_PASSWORDS === "1";
+const repairDataOnly = process.env.AOI_REPAIR_DATA_ONLY === "1";
 
 if (!supabaseUrl || !serviceRoleKey) throw new Error("Supabase URL and service-role key are required.");
-if (!resetAllPasswords) throw new Error("Set AOI_RESET_ALL_PASSWORDS=1 to acknowledge the organization-wide password reset.");
-if (!bootstrapPassword || bootstrapPassword.length < 14 || !/[A-Z]/.test(bootstrapPassword) || !/[a-z]/.test(bootstrapPassword) || !/[0-9]/.test(bootstrapPassword) || !/[^A-Za-z0-9]/.test(bootstrapPassword)) {
+if (!repairDataOnly && !resetAllPasswords) throw new Error("Set AOI_RESET_ALL_PASSWORDS=1 to acknowledge the organization-wide password reset, or use AOI_REPAIR_DATA_ONLY=1.");
+if (!repairDataOnly && (!bootstrapPassword || bootstrapPassword.length < 14 || !/[A-Z]/.test(bootstrapPassword) || !/[a-z]/.test(bootstrapPassword) || !/[0-9]/.test(bootstrapPassword) || !/[^A-Za-z0-9]/.test(bootstrapPassword))) {
   throw new Error("Set AOI_BOOTSTRAP_PASSWORD to a strong value (at least 14 characters with mixed case, digit, and symbol).");
 }
 
@@ -71,6 +72,7 @@ const protectedCounts = await Promise.all(protectedTables.map(([table, column]) 
 let authUser = await findAuthUser(WEN_ACCOUNT.email);
 let accountCreated = false;
 if (!authUser) {
+  if (repairDataOnly) throw new Error("Wen Auth user is required for data-only repair; refusing to create an account without an explicit password.");
   const { data, error } = await supabase.auth.admin.createUser({
     email: WEN_ACCOUNT.email,
     password: bootstrapPassword,
@@ -133,14 +135,16 @@ const { data: activeMembers, error: membersError } = await supabase
   .eq("organization_id", organization.id)
   .eq("status", "active");
 required(activeMembers, membersError, "Find active AOI members");
-const { error: reminderError } = await supabase.from("profiles").update({
-  password_reminder_seeded_at: seededAt,
-  password_changed_at: null,
-  password_reminder_snoozed_until: null,
-  updated_at: seededAt,
-}).in("id", activeMembers.map((member) => member.user_id));
-if (reminderError) throw new Error(`Mark password reminders: ${reminderError.message}`);
-for (const member of activeMembers) await resetAuthPassword(member.user_id);
+if (!repairDataOnly) {
+  const { error: reminderError } = await supabase.from("profiles").update({
+    password_reminder_seeded_at: seededAt,
+    password_changed_at: null,
+    password_reminder_snoozed_until: null,
+    updated_at: seededAt,
+  }).in("id", activeMembers.map((member) => member.user_id));
+  if (reminderError) throw new Error(`Mark password reminders: ${reminderError.message}`);
+  for (const member of activeMembers) await resetAuthPassword(member.user_id);
+}
 
 const plan = buildInternSeedPlan({ organizationId: organization.id, projectId: project.id, userId: authUser.id });
 const stableTaskIds = plan.tasks.map((task) => task.id);
@@ -187,5 +191,5 @@ console.log(JSON.stringify({
   tasks: tasks.length,
   eodBriefs: eodBriefs.length,
   protectedResearchRecordsPreserved: true,
-  password: { bootstrapApplied: true, reminderEnabled: true },
+  password: { bootstrapApplied: !repairDataOnly, reminderEnabled: !repairDataOnly },
 }, null, 2));
