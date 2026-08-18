@@ -8,10 +8,6 @@
 /test-results/
 /playwright-report/
 
-# generated tool state (retire after local cleanup)
-/.vinext/
-/.wrangler/
-
 # misc
 .DS_Store
 *.pem

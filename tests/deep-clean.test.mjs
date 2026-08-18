@@ -67,6 +67,6 @@ test("removes obsolete starter assets and retired stack ignores", async () => {
   for (const path of ["public/file.svg", "public/globe.svg", "public/window.svg", "public/og.png"]) {
     await assert.rejects(access(new URL(path, root)), { code: "ENOENT" });
   }
-  assert.doesNotMatch(gitignore, /^\/\.pnp$|^\.pnp\.\*$|^\.yarn\/|^\/\.next\/$|^\/out\/$|^\.vercel$/m);
+  assert.doesNotMatch(gitignore, /^\/\.pnp$|^\.pnp\.\*$|^\.yarn\/|^\/\.next\/$|^\/\.vinext\/$|^\/out\/$|^\.vercel$|^\/\.wrangler\/$/m);
   assert.match(readme, /embedded Administration workspace destination/i);
 });
