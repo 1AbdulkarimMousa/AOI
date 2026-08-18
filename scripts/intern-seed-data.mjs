@@ -150,7 +150,7 @@ const WEN_TASKS = Object.freeze([
   },
 ]);
 
-export const WEN_EOD_BRIEFS = Object.freeze([
+const WEN_EOD_BRIEFS = Object.freeze([
   {
     briefDate: "2026-07-29",
     movedOutcome: "Continued studying PMF methodology, documented MECE notes, and began reviewing the interview guide for mock interviews.",

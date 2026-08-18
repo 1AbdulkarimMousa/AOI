@@ -143,7 +143,7 @@ test("keeps Supabase access behind authenticated RPCs and an Edge Function", asy
   const auth = await readFile(new URL("src/js/auth.js", root), "utf8");
 
   assert.match(api, /rpc\("rpc_aoi_demo_dashboard"\)/);
-  assert.match(api, /rpc\("rpc_admin_list_users"\)/);
+  assert.match(api, /rpc\("rpc_admin_overview"\)/);
   assert.match(api, /rpc\("rpc_admin_create_task_v2"/);
   assert.match(api, /functions\.invoke\("admin-create-user"/);
   assert.match(auth, /rpc\("rpc_current_user_context"\)/);

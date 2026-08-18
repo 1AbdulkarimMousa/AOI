@@ -27,7 +27,7 @@ import {
 import { buildResponseCsv, exportSurveyPackage, importSurveyPackage } from "./import-export.js";
 import { analysisValues, buildAnalysisQuestions, canReviewSurveyResponse } from "./analysis.js";
 
-export const SURVEY_QUESTION_TYPES = [
+const SURVEY_QUESTION_TYPES = [
   ["content", "Instruction / concept"],
   ["short_text", "Short answer"], ["long_text", "Long answer"], ["number", "Number"],
   ["email", "Email"], ["phone", "Phone"], ["url", "URL"], ["date", "Date"], ["time", "Time"],
@@ -134,7 +134,6 @@ export function createSurveyWorkspaceState() {
     surveyBeforeUnloadBound: false,
     surveyPreviewOpen: false,
     surveyPreviewAnswers: {},
-    surveyPreviewSectionIndex: 0,
     surveyEditGeneration: 0,
     surveyQueuedSave: false,
     surveySavePromise: null,
@@ -694,17 +693,6 @@ export function createSurveyWorkspaceState() {
       const counts = new Map();
       for (const value of categorical) counts.set(String(value), (counts.get(String(value)) || 0) + 1);
       return { kind: "categorical", count: values.length, mean: 0, values, breakdown: [...counts].map(([label, count]) => ({ label, count, percent: categorical.length ? Math.round(count / categorical.length * 100) : 0 })).sort((a, b) => b.count - a.count) };
-    },
-    surveyValueBreakdown(questionId) {
-      const question = this.surveyQuestions().find((item) => item.id === questionId);
-      if (question) return this.surveyQuestionAggregate(question).breakdown || [];
-      const values = this.surveyQuestionSummary(questionId).values || [];
-      const counts = new Map();
-      for (const value of values) {
-        const label = Array.isArray(value) ? value.join(" | ") : typeof value === "object" ? JSON.stringify(value) : String(value);
-        counts.set(label, (counts.get(label) || 0) + 1);
-      }
-      return [...counts].map(([label, count]) => ({ label, count, percent: values.length ? Math.round(count / values.length * 100) : 0 })).sort((a, b) => b.count - a.count);
     },
     async exportCurrentSurveyPackage() {
       const source = await exportSurveyPackage({ definition: this.surveyDefinition, name: this.surveyText(this.surveyDefinition.title), metadata: { assetId: this.surveyWorkspace.asset.id } });

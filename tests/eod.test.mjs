@@ -10,7 +10,6 @@ import {
   isLegacyEvidenceException,
   readDailyEodDraft,
   toggleExecutiveOwner,
-  validateDailyEodBrief,
   validateDailyEodFields,
   writeDailyEodDraft,
 } from "../src/js/daily-eod.js";
@@ -43,14 +42,14 @@ test("creates a stable EOD draft with three priorities and one evidence row", ()
 });
 
 test("requires every submitted EOD field and a valid evidence URL", () => {
-  assert.deepEqual(validateDailyEodBrief(validBrief()), []);
+  assert.deepEqual(validateDailyEodFields(validBrief()), {});
 
   const invalid = validBrief();
   invalid.keyInsight = "";
   invalid.tomorrowPriorities[1] = "";
   invalid.evidenceLinks[0].url = "not-a-url";
 
-  assert.deepEqual(validateDailyEodBrief(invalid), [
+  assert.deepEqual(Object.values(validateDailyEodFields(invalid)), [
     "Add the key insight or discovery.",
     "Add exactly three priorities for tomorrow.",
     "Add at least one labeled http(s) evidence link.",

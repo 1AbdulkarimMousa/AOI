@@ -1,6 +1,6 @@
 import { isSafeHttpUrl } from "./core.js";
 
-export const PMF_LAYERS = [
+const PMF_LAYERS = [
   { code: "H1", name: "Need Truth" },
   { code: "H2", name: "Current Solution Gap" },
   { code: "H3", name: "Product Value" },

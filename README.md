@@ -89,7 +89,7 @@ The persistence contract is in `supabase/migrations/20260804164524_daily_eod_bri
 
 ## Administration
 
-Administration is a dedicated owner/admin workspace rather than an embedded dashboard view. It provides invitation and temporary-password onboarding, operational staff profiles, task and CRM ownership, archived-user handoff, append-only audit history, and preview-first CSV, JSON, and structured Markdown portability. An archived person loses access while completed work, evidence, EOD briefs, CRM activity, and authorship remain intact.
+Administration is an embedded Administration workspace destination with a standalone direct-access page for compatibility. It provides invitation and temporary-password onboarding, operational staff profiles, task and CRM ownership, archived-user handoff, append-only audit history, and preview-first CSV, JSON, and structured Markdown portability. An archived person loses access while completed work, evidence, EOD briefs, CRM activity, and authorship remain intact.
 
 The organization owner manages administrator-role changes and full restores. Administrators manage intern onboarding and offboarding. The migration `supabase/migrations/20260804190000_administration_foundation.sql` adds the lifecycle, ownership, profile, onboarding, transfer, CRM synchronization, and permission contracts.
 

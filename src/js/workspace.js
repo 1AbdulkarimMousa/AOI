@@ -119,7 +119,6 @@ export function registerWorkspace(Alpine) {
     expectedRole: document.body.dataset.expectedRole,
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
     administrationUrl: `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=administration`,
-    helpCenterUrl: `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=help-center`,
      participantTrackerUrl: pageUrl(import.meta.env.BASE_URL, "Participant_Recruitment_Tracker.html"),
     access: null,
     data: emptyDashboard(),
@@ -193,8 +192,7 @@ export function registerWorkspace(Alpine) {
     savingTaskCheckpoint: false,
     savingTaskReview: "",
     taskReturnFocus: null,
-     selectedLayer: null,
-       selectedCandidate: null,
+        selectedCandidate: null,
        candidateEditorOpen: false,
        candidateReturnFocus: null,
      candidateFilter: "all",
@@ -429,7 +427,6 @@ export function registerWorkspace(Alpine) {
     clamp,
     statusLabel(status) { return this.t(`status_${status}`); },
     priorityLabel(priority) { return this.t(`priority_${priority}`); },
-    progressTone(value) { return value >= 70 ? "teal" : value >= 40 ? "orange" : "muted"; },
     formatDate(value) {
       if (!value) return "No date";
       const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
@@ -452,12 +449,6 @@ export function registerWorkspace(Alpine) {
       if (this.locale === "zh-CN") return minutes < 60 ? `${minutes} 分钟前` : `${Math.round(minutes / 60)} 小时前`;
       return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
     },
-    samplePercent(item) { return Math.round((item.actual / Math.max(1, item.target)) * 100); },
-    get overallSample() {
-      const actual = this.data.samplePlan.reduce((sum, item) => sum + item.actual, 0);
-      const target = this.data.samplePlan.reduce((sum, item) => sum + item.target, 0);
-      return Math.round((actual / Math.max(1, target)) * 100);
-    },
     get filteredTasks() {
       if (this.taskFilter === "attention") return this.data.tasks.filter((task) => ["blocked", "revision_requested"].includes(task.status));
       if (this.taskFilter === "progress") return this.data.tasks.filter((task) => ["assigned", "in_progress"].includes(task.status));
@@ -471,7 +462,6 @@ export function registerWorkspace(Alpine) {
     get canUpdateSelectedTask() {
       return this.taskDetailReady && this.access?.role === "intern" && this.selectedTask && !["submitted", "approved", "completed", "cancelled"].includes(this.selectedTask.status);
     },
-    get focusTasks() { return this.data.tasks.filter((task) => ["submitted", "revision_requested", "blocked"].includes(task.status)).slice(0, 3); },
     get briefingCopy() {
       if (!this.briefingState.generatedAt) return {
         eyebrow: this.access?.role === "admin" ? "Administrator briefing" : "Your briefing",
@@ -588,15 +578,6 @@ export function registerWorkspace(Alpine) {
         return matchesQuery && matchesFilter;
       });
     },
-    get candidateStats() {
-      const candidates = this.candidates;
-      return {
-        total: candidates.length,
-        ready: candidates.filter((candidate) => !["Research needed", "Unreachable"].includes(candidate.contactReadiness)).length,
-        pmf: candidates.filter((candidate) => candidate.pmfCandidate).length,
-        followUps: candidates.filter((candidate) => candidate.nextStepDue && candidate.nextStepDue <= today()).length,
-      };
-    },
     get relationshipOwners() {
       const members = this.projectSnapshot?.members || this.dailyEodMembers || [];
       return members.map((member) => ({
@@ -610,9 +591,6 @@ export function registerWorkspace(Alpine) {
     },
     candidateEvidence(candidateId = this.selectedCandidate?.id) {
       return (this.data.evidenceRecords || []).filter((record) => record.candidateId === candidateId);
-    },
-    crmContactActivities(contactId = this.selectedCrmContact?.id) {
-      return (this.data.crmActivity || []).filter((activity) => activity.contactId === contactId);
     },
     get researchRespondents() { return this.data.collect?.respondents || this.data.respondents || []; },
     get collectRecords() { return buildCollectIndex(this.data.collect || this.data); },
@@ -718,12 +696,6 @@ export function registerWorkspace(Alpine) {
       this.mobileNav = false;
       this.commandOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
-    },
-    openPmfLayer(layer) {
-      if (!layer) return;
-      this.selectedLayer = layer;
-      this.matrixLayer = layer.code;
-      this.setView("analyze");
     },
     async setTodayTab(tab) {
       if (shouldConfirmSurveyRoute(this.isSurveyWorkspaceActive, false, this.surveyDirty) && !await this.confirmSurveyNavigation()) return false;
@@ -1385,7 +1357,6 @@ export function registerWorkspace(Alpine) {
         }
         if (destination.layer) {
           this.matrixLayer = destination.layer;
-          this.selectedLayer = this.data.pmfLayers?.find((layer) => layer.code === destination.layer) || null;
         }
         if (destination.type && destination.id) this.openRequestedCollectRecord(destination.type, destination.id);
         return true;

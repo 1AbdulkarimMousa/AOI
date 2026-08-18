@@ -284,19 +284,6 @@ export async function addEvidence(candidateId, input) {
   return data;
 }
 
-export async function queueEmail(candidateId, input) {
-  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_queue_email", {
-    p_candidate_id: candidateId,
-    p_recipient: input.recipient,
-    p_email_subject: input.subject,
-    p_email_body: input.body,
-    p_send_at: input.sendAt || new Date().toISOString(),
-    p_template_id: input.templateId || null,
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
 export async function saveResearchRecord(recordType, payload) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_save_research_record", {
     p_record_type: recordType,
@@ -542,12 +529,6 @@ export async function uploadResearchAttachment({ bucketId, file, projectId, orga
   return metadata.data;
 }
 
-export async function listAdminUsers() {
-  const { data, error } = await getSupabaseClient().rpc("rpc_admin_list_users");
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
 export async function loadAdministrationOverview() {
   const { data, error } = await getSupabaseClient().rpc("rpc_admin_overview");
   if (error) throw new Error(error.message);
@@ -712,23 +693,11 @@ export async function convertParticipantToRespondent(recruitmentId) {
   return data;
 }
 
-export async function loadCollectSnapshot() {
-  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_collect_snapshot");
-  if (error) throw new Error(error.message);
-  return data;
-}
-
 export async function loadCollectRecordDetail(recordType, recordId) {
   const { data, error } = await getSupabaseClient().rpc("rpc_aoi_collect_record_detail", {
     p_record_type: recordType,
     p_record_id: recordId,
   });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function loadGamificationSummary() {
-  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_gamification_summary");
   if (error) throw new Error(error.message);
   return data;
 }
@@ -754,12 +723,6 @@ export async function setHelpArticleStatus(articleId, status, expectedVersion = 
     p_status: status,
     p_expected_version: expectedVersion,
   });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function reorderHelpArticles(order) {
-  const { data, error } = await getSupabaseClient().rpc("rpc_aoi_help_center_reorder", { p_order: order });
   if (error) throw new Error(error.message);
   return data;
 }

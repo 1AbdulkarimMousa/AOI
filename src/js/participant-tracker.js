@@ -7,7 +7,7 @@ import { initials, localDateValue, pageUrl, readableError, routeForRole } from "
 
 const STATUS_OPTIONS = ["new", "contacted", "responded", "screening", "scheduled", "completed", "declined", "no_response"];
 
-export const allowedRecruitmentTransitions = Object.freeze({
+const allowedRecruitmentTransitions = Object.freeze({
   new: ["new", "contacted", "declined"],
   contacted: ["contacted", "responded", "no_response", "declined"],
   responded: ["responded", "screening", "declined"],
@@ -207,22 +207,6 @@ export function registerParticipantTracker(Alpine) {
         this.notice = { tone: "error", text: readableError(reason, "Unable to save the recruitment record.") };
       } finally {
         this.saving = false;
-      }
-    },
-    async quickStatus(item, status) {
-      try {
-        if (!this.availableStatuses(item).includes(status)) throw new Error("RECRUITMENT_TRANSITION_INVALID");
-        if (this.preview) this.items = this.items.map((record) => record.id === item.id ? { ...record, status } : record);
-        else {
-          const payload = { ...item, status };
-          delete payload.crmContactId;
-          delete payload.respondentId;
-          await saveParticipantRecruitment(payload);
-          await this.refresh();
-        }
-        this.notice = { tone: "success", text: `${item.name} moved to ${this.statusLabel(status)}.` };
-      } catch (reason) {
-        this.notice = { tone: "error", text: readableError(reason, "Unable to update the recruitment stage.") };
       }
     },
     async convertToRespondent(item) {

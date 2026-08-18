@@ -1,9 +1,9 @@
 import { getSupabaseClient } from "./supabase.js";
 import { isStrongPassword } from "./password-reminder.js";
 
-export class WorkspaceMembershipError extends Error {}
+class WorkspaceMembershipError extends Error {}
 
-export async function getSession() {
+async function getSession() {
   const { data, error } = await getSupabaseClient().auth.getSession();
   if (error) throw new Error(error.message);
   return data.session;
@@ -51,7 +51,7 @@ export async function signOut() {
   await getSupabaseClient().auth.signOut();
 }
 
-export async function completePasswordChange(password, currentPassword = "", passwordCallback = null) {
+async function completePasswordChange(password, currentPassword = "", passwordCallback = null) {
   if (!isStrongPassword(password)) throw new Error("Choose a stronger password: at least 14 characters with upper/lower case, a digit, and a symbol.");
   const client = getSupabaseClient();
   const { data, error } = await client.functions.invoke("admin-create-user", {

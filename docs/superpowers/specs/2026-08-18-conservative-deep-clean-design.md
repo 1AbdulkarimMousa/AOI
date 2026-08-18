@@ -14,7 +14,7 @@ Reduce verified dead code and reproducible local disk usage without changing pro
 - Remove browser API wrappers and controller members with no repository consumers.
 - Remove compatibility wrappers used only by tests after moving those tests to canonical functions.
 - Remove generic starter assets with no references.
-- Remove obsolete stack-specific ignore entries once their generated directories are deleted.
+- Remove obsolete stack-specific ignore entries, deferring `.vinext` and `.wrangler` until their generated directories are deleted after the first deployment.
 - Correct README wording that describes Administration as non-embedded.
 
 Only selectors exclusively coupled to deleted markup are removed. Broad CSS-family purges, dependency upgrades, shared-controller refactors, seed-script consolidation, and uncertain feature removal are outside this cleanup.
@@ -27,6 +27,7 @@ After tracked changes pass verification and deploy successfully:
 - Remove `dist/`, `node_modules/`, `.vinext/`, `.wrangler/`, `test-results/`, and `tsconfig.tsbuildinfo`.
 - Leave dependencies removed; restore them later with `npm ci`.
 - Preserve `supabase/.temp/` because deleting it requires an explicit relink operation.
+- Remove the `.vinext` and `.wrangler` ignore entries in a focused follow-up commit, then deploy that final tracked state.
 
 ### Git Cleanup
 
@@ -56,7 +57,8 @@ The unexecuted Deno test and lockfile policy remains a separate follow-up becaus
 4. Obtain an independent diff review and address findings.
 5. Commit tracked cleanup to `main`, push, wait for the GitHub Pages workflow, and smoke-test production.
 6. Stop the preview process and remove approved generated artifacts.
-7. Remove the approved detached worktree and verify all protected worktrees remain intact.
+7. Remove the `.vinext` and `.wrangler` ignore entries, run the focused cleanup contract, commit, push, and verify the final deployment.
+8. Remove the approved detached worktree and verify all protected worktrees remain intact.
 
 ## Verification
 

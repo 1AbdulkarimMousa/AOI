@@ -68,7 +68,6 @@ export function registerAdministration(Alpine) {
     dark: localStorage.getItem("aoi-theme") === "dark",
     locale: localStorage.getItem("aoi-locale") === "zh-CN" ? "zh-CN" : "en",
     loginUrl: pageUrl(import.meta.env.BASE_URL, "login.html"),
-    workspaceUrl: `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=today&tab=briefing`,
     workspaceCrmUrl: `${pageUrl(import.meta.env.BASE_URL, "workspace.html")}?view=relationships&tab=contacts`,
     sidebarCollapsed: false,
     mobileNav: false,

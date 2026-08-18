@@ -7,7 +7,7 @@ import {
 } from "./api.js";
 import { initials, readableError } from "./core.js";
 
-export const AVATAR_KEYS = ["coral", "teal", "blue", "purple", "gold", "slate", "rose", "sand"];
+const AVATAR_KEYS = ["coral", "teal", "blue", "purple", "gold", "slate", "rose", "sand"];
 
 function validTimezone(value) {
   try {

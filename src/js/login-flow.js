@@ -9,7 +9,3 @@ export function passwordEstablishmentType(value) {
     return null;
   }
 }
-
-export function isPasswordRecoveryUrl(value) {
-  return passwordEstablishmentType(value) === "recovery";
-}

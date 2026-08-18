@@ -5,7 +5,7 @@ import test from "node:test";
 import { csvCell } from "../src/js/core.js";
 import { resolveWorkspaceRoute } from "../src/js/crm.js";
 import { crmTemplate } from "../src/js/crm-template.js";
-import { validateDailyEodBrief, createDailyEodDraft } from "../src/js/daily-eod.js";
+import { createDailyEodDraft, validateDailyEodFields } from "../src/js/daily-eod.js";
 import { buildCandidateExport, parseCandidateImport } from "../src/js/operations.js";
 import { buildLayerMatrices, validateResearchRecord } from "../src/js/pmf.js";
 
@@ -103,7 +103,7 @@ test("allows blank optional EOD evidence rows when one complete link remains", (
     ],
   });
 
-  assert.deepEqual(validateDailyEodBrief(brief), []);
+  assert.deepEqual(validateDailyEodFields(brief), {});
 });
 
 test("round-trips the complete candidate portability contract", () => {
@@ -149,14 +149,13 @@ test("round-trips the complete candidate portability contract", () => {
   assert.deepEqual(imported.rows[0], candidate);
 });
 
-test("wires local dates, preserved EOD state, PMF layer routing, and mutation refreshes", async () => {
+test("wires local dates, preserved EOD state, briefing PMF routing, and mutation refreshes", async () => {
   const workspace = await readFile(new URL("src/js/workspace.js", root), "utf8");
 
   assert.match(workspace, /localDateValue/);
   assert.doesNotMatch(workspace, /function today\(\)[\s\S]*?toISOString\(\)\.slice\(0, 10\)/);
   assert.match(workspace, /dailyEod:\s*liveData\.dailyEod\s*\|\|\s*this\.data\.dailyEod/);
-  assert.match(workspace, /openPmfLayer\(layer\)/);
-  assert.match(workspace, /matrixLayer\s*=\s*layer\.code/);
+  assert.match(workspace, /matrixLayer\s*=\s*destination\.layer/);
   assert.match(workspace, /refreshMutationState/);
 });
 

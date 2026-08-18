@@ -26,7 +26,7 @@ const CHAT_FILE_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-export const REACTION_EMOJI = {
+const REACTION_EMOJI = {
   thumbs_up: "👍", heart: "♥", celebrate: "🎉", laugh: "😄", surprised: "😮", sad: "😔",
 };
 

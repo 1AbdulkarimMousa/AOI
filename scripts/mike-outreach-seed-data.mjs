@@ -1,4 +1,4 @@
-export const MIKE_OUTREACH_DATE = "2026-08-05";
+const MIKE_OUTREACH_DATE = "2026-08-05";
 
 export const MIKE_OUTREACH_CONTACTS = Object.freeze([
   {

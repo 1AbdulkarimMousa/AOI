@@ -35,10 +35,6 @@ export function createDailyEodDraft(values = {}) {
   };
 }
 
-export function validateDailyEodBrief(brief) {
-  return Object.values(validateDailyEodFields(brief));
-}
-
 export function validateDailyEodFields(brief) {
   const errors = {};
   if (!String(brief.engagementManagerId || "").trim()) errors.engagementManagerId = "Choose the Engagement Manager.";

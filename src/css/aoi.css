@@ -5360,9 +5360,6 @@ textarea:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2
 .eod-report-table small { color: var(--ink-faint); font-size: 8px; }
 .eod-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 13px 22px; border-top: 1px solid var(--line); }
 .eod-pagination span { color: var(--ink-faint); font-size: 8px; }
-.eod-report-entry { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 18px; padding: 22px 24px; }
-.eod-report-entry h2 { margin: 5px 0; font-size: 18px; }
-.eod-report-entry p { margin: 0; color: var(--ink-soft); font-size: 9px; }
 .eod-record-drawer { width: min(760px, 100%); height: 100%; margin-left: auto; overflow-y: auto; padding: 21px 23px 30px; border-inline-start: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-lg); animation: drawer-in 180ms ease both; }
 .eod-drawer-notice { position: fixed; z-index: 110; top: 76px; right: 25px; width: min(520px, calc(100vw - 32px)); box-shadow: var(--shadow-lg); }
 .eod-report-error { position: fixed; z-index: 30; right: 24px; bottom: 24px; width: min(480px, calc(100vw - 32px)); box-shadow: var(--shadow-lg); }
@@ -5411,8 +5408,6 @@ textarea:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2
   .eod-team-list > button > span:last-child { display: none; }
   .eod-report-filters { grid-template-columns: 1fr 1fr; padding-inline: 16px; }
   .eod-report-filters label:first-child, .eod-report-filters .button { grid-column: 1 / -1; }
-  .eod-report-entry { align-items: flex-start; flex-direction: column; }
-  .eod-report-entry .button { width: 100%; }
   .eod-record-drawer { padding: 18px 15px 26px; }
   .eod-admin-actions > div { display: grid; grid-template-columns: 1fr; }
 }

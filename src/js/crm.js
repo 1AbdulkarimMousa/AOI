@@ -14,8 +14,6 @@ const LEGACY_OUTREACH_VIEWS = { outreach: "pipeline", evidence: "evidence", impo
 const LEGACY_RESEARCH_VIEWS = { collect: "collect", surveys: "surveys", analyze: "analyze", reports: "reports", pmf: "analyze" };
 const LEGACY_WORKSPACE_VIEWS = { crm: "relationships", "daily-eod": "eod", "end-of-day": "eod", help: "help-center", helpcenter: "help-center", admin: "administration" };
 
-export const CRM_LIFECYCLES = ["new", "researching", "ready", "contacted", "engaged", "qualified", "paused"];
-
 export function nextTabFromKey(tabs, currentTab, key) {
   const currentIndex = tabs.indexOf(currentTab);
   if (currentIndex < 0 || !tabs.length) return null;
@@ -107,8 +105,6 @@ export function resolveWorkspaceRoute({ view, tab, section, project, milestone, 
 
   return { view: resolvedView, ...defaults, normalize: normalize || Boolean(tab || section) };
 }
-
-export const resolveCrmWorkspaceRoute = resolveWorkspaceRoute;
 
 export function createContactDraft(ownerName = "") {
   return {

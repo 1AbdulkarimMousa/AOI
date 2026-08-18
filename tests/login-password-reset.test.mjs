@@ -11,9 +11,9 @@ const edge = await readFile(new URL("../supabase/functions/admin-create-user/ind
 
 test("recognizes Supabase recovery callbacks in query strings and URL fragments", () => {
   assert.ok(flow, "Login flow helpers must exist");
-  assert.equal(flow.isPasswordRecoveryUrl("https://example.test/login.html#access_token=x&type=recovery"), true);
-  assert.equal(flow.isPasswordRecoveryUrl("https://example.test/login.html?type=recovery"), true);
-  assert.equal(flow.isPasswordRecoveryUrl("https://example.test/login.html#access_token=x&type=signup"), false);
+  assert.equal(flow.passwordEstablishmentType("https://example.test/login.html#access_token=x&type=recovery"), "recovery");
+  assert.equal(flow.passwordEstablishmentType("https://example.test/login.html?type=recovery"), "recovery");
+  assert.equal(flow.passwordEstablishmentType("https://example.test/login.html#access_token=x&type=signup"), "signup");
 });
 
 test("keeps invite and signup callbacks in password establishment", () => {
