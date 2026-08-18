@@ -55,8 +55,16 @@ test("ships the complete shared EOD form and administrator oversight", async () 
   assert.match(template, /access\.role==='admin'/);
   assert.match(template, /role="alert" tabindex="-1"/);
   assert.match(template, /aria-invalid/);
+  assert.match(template, /id="\$\{prefix\}-\$\{field\}"/);
+  assert.match(template, /dailyEodAdminFieldError/);
+  assert.match(template, /aria-errormessage/);
+  assert.match(template, /aria-describedby/);
   assert.match(template, /aria-pressed/);
   assert.match(template, /<table/);
+  assert.match(template, /aria-label="Submission requirements"/);
+  assert.match(template, /class="eod-record-drawer" role="dialog" aria-modal="true" aria-labelledby="eod-record-title" tabindex="-1"/);
+  assert.match(template, /refreshDailyEod\(\{ preserveDraft: dailyEodDirty \}\)/);
+  assert.match(controller, /adminCompleteDailyEod[\s\S]*?refreshDailyEod\(\{ preserveDraft: true \}\)/);
   assert.match(template, /Evidence unavailable in imported record/);
   assert.match(template, /lang="en"/);
 });
@@ -76,7 +84,7 @@ test("styles the EOD form for focused desktop and stacked mobile use", async () 
   assert.match(styles, /\.eod-status-options input:focus-visible/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.eod-layout/);
   assert.match(styles, /\.eod-form input[\s\S]*font-size:\s*16px/);
-  assert.match(styles, /@media \(max-width: 1180px\)[\s\S]*\.eod-layout/);
+  assert.match(styles, /@media \(max-width: 1400px\)[\s\S]*\.eod-layout/);
 });
 
 test("protects and recovers unsaved EOD work across navigation and project changes", async () => {

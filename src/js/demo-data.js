@@ -201,6 +201,7 @@ function previewEodRecord(values) {
     projectId: fallbackDashboard.project.id,
     projectCode: fallbackDashboard.project.code,
     projectName: fallbackDashboard.project.name,
+    projectLifecycle: "active",
     engagementManagerId: "preview-admin",
     engagementManagerName: "AOI Administrator",
     personInChargeId: values.authorId,
@@ -233,6 +234,7 @@ fallbackDashboard.dailyEodReportItems = [
 ];
 
 fallbackDashboard.dailyEod = {
+  projectId: fallbackDashboard.project.id,
   serverDate: "2026-08-04",
   serverNow: "2026-08-04T20:45:00.000Z",
   timezone: "America/New_York",

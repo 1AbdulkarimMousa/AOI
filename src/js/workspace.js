@@ -47,7 +47,7 @@ import { buildLayerMatrices, buildPmfRecommendations, normalizeObservationValues
 import { shouldConfirmSurveyRoute } from "./surveys/analysis.js";
 import { buildTodayQueue, contactCompleteness, createContactDraft, nextTabFromKey, resolveWorkspaceRoute, rewardForAction } from "./crm.js";
 import { buildCollectIndex, filterCollectRecords, gamificationLevel, hydrateResearchRevisionForm, prefillResearchForm, restoreResearchDrafts } from "./collect.js";
-import { createDailyEodDraft, createDailyEodDraftKey, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, isLegacyEvidenceException, readDailyEodDraft, toggleExecutiveOwner, validateDailyEodBrief, validateDailyEodFields, writeDailyEodDraft } from "./daily-eod.js";
+import { createDailyEodDraft, createDailyEodDraftKey, dailyEodAttentionCount, filterDailyEodTeam, formatDailyEodTimestamp, isLegacyEvidenceException, readDailyEodDraft, toggleExecutiveOwner, validateDailyEodFields, writeDailyEodDraft } from "./daily-eod.js";
 import { shouldShowPasswordReminder, snoozeUntil } from "./password-reminder.js";
 import { createSurveyWorkspaceState } from "./surveys/workspace.js";
 import { createChatState } from "./chat.js";
@@ -246,6 +246,7 @@ export function registerWorkspace(Alpine) {
       dailyEodNotice: null,
       dailyEodError: "",
       dailyEodState: "uninitialized",
+      refreshingDailyEod: false,
       dailyEodFieldErrors: {},
       dailyEodRecovery: null,
       dailyEodRecoveryTimer: null,
@@ -256,6 +257,8 @@ export function registerWorkspace(Alpine) {
       dailyEodAdminForm: createDailyEodDraft(),
       dailyEodAdminReason: "",
       dailyEodAdminNotice: null,
+      dailyEodAdminFieldErrors: {},
+      dailyEodAdminValidationAction: "save",
       dailyEodReturnFocus: null,
       dailyEodRefreshTimer: null,
       dailyEodVisibilityHandler: null,
@@ -503,6 +506,12 @@ export function registerWorkspace(Alpine) {
     get dailyEodLegacyEvidence() { return isLegacyEvidenceException(this.selectedDailyEod); },
     get dailyEodRecoveryKey() { return createDailyEodDraftKey(this.dailyEodUserId, this.dailyEod.projectId || this.dailyEod.myBrief?.projectId, this.dailyEod.serverDate); },
     dailyEodFieldError(field) { return this.dailyEodFieldErrors[field] || ""; },
+    dailyEodAdminFieldError(field) { return this.dailyEodAdminFieldErrors[field] || ""; },
+    dailyEodEvidenceFieldInvalid(link, field, target = "own") {
+      const error = target === "admin" ? this.dailyEodAdminFieldError("evidenceLinks") : this.dailyEodFieldError("evidenceLinks");
+      if (!error) return false;
+      return field === "label" ? !String(link?.label || "").trim() : !isSafeHttpUrl(link?.url);
+    },
     get dailyEodAttention() { return dailyEodAttentionCount(this.dailyEod, this.access?.role, this.dailyEodUserId); },
     get showPasswordReminder() {
       return !this.preview && shouldShowPasswordReminder({
@@ -2195,10 +2204,92 @@ export function registerWorkspace(Alpine) {
     },
     markDailyEodDirty() {
       this.dailyEodDirty = true;
-      this.dailyEodFieldErrors = {};
+      if (Object.keys(this.dailyEodFieldErrors).length) {
+        this.dailyEodFieldErrors = validateDailyEodFields({
+          ...this.dailyEodForm,
+          evidenceLinks: (this.dailyEodForm.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim()),
+        });
+        if (this.dailyEodNotice?.kind === "validation") {
+          const count = Object.keys(this.dailyEodFieldErrors).length;
+          this.dailyEodNotice = count
+            ? { tone: "error", kind: "validation", text: `Review ${count} required ${count === 1 ? "field" : "fields"} before submitting.` }
+            : null;
+        }
+      }
     },
     focusDailyEodField(field) {
-      document.querySelector(`.eod-layout [data-eod-field="${field}"]`)?.focus();
+      const fields = [...document.querySelectorAll(`.eod-layout [data-eod-field="${field}"]`)];
+      const fieldElement = fields.find((element) => element.getAttribute("aria-invalid") === "true") || fields[0];
+      const target = fieldElement?.matches("fieldset")
+        ? fieldElement.querySelector("input:not([disabled]), select:not([disabled]), textarea:not([disabled])")
+        : fieldElement;
+      target?.focus();
+    },
+    dailyEodAdminValidationErrors(action = this.dailyEodAdminValidationAction) {
+      const errors = {};
+      if (this.dailyEodAdminReason.trim().length < 3) errors.adminReason = "Add an edit or completion reason with at least three characters.";
+      const requiresCompleteBrief = ["submitted", "completed"].includes(this.selectedDailyEod?.workflowStatus) || action === "complete";
+      if (requiresCompleteBrief && !this.dailyEodLegacyEvidence) {
+        Object.assign(errors, validateDailyEodFields({
+          ...this.dailyEodAdminForm,
+          evidenceLinks: (this.dailyEodAdminForm.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim()),
+        }));
+      }
+      return errors;
+    },
+    revalidateDailyEodAdmin() {
+      if (!Object.keys(this.dailyEodAdminFieldErrors).length) return;
+      this.dailyEodAdminFieldErrors = this.dailyEodAdminValidationErrors();
+      const count = Object.keys(this.dailyEodAdminFieldErrors).length;
+      this.dailyEodAdminNotice = count
+        ? { tone: "error", kind: "validation", text: `Review ${count} administrator ${count === 1 ? "field" : "fields"}.` }
+        : null;
+      this.syncDailyEodAdminStaticErrors();
+    },
+    syncDailyEodAdminStaticErrors() {
+      this.$nextTick(() => {
+        const drawer = document.querySelector(".eod-record-drawer");
+        if (!drawer) return;
+        const fields = [
+          ["engagementManagerId", '[x-model="dailyEodAdminForm.engagementManagerId"]'],
+          ["personInChargeId", '[x-model="dailyEodAdminForm.personInChargeId"]'],
+          ["adminReason", '[x-model="dailyEodAdminReason"]'],
+        ];
+        for (const [field, selector] of fields) {
+          const control = drawer.querySelector(selector);
+          if (!control) continue;
+          control.dataset.eodField = field;
+          const error = this.dailyEodAdminFieldError(field);
+          let message = control.closest("label")?.querySelector(`[data-eod-admin-error-for="${field}"]`);
+          if (!message) {
+            message = document.createElement("span");
+            message.id = `eod-admin-error-${field}`;
+            message.className = "eod-field-error";
+            message.dataset.eodAdminErrorFor = field;
+            control.closest("label")?.append(message);
+          }
+          message.textContent = error;
+          message.hidden = !error;
+          if (error) {
+            control.setAttribute("aria-invalid", "true");
+            control.setAttribute("aria-errormessage", message.id);
+            control.setAttribute("aria-describedby", message.id);
+          } else {
+            control.removeAttribute("aria-invalid");
+            control.removeAttribute("aria-errormessage");
+            control.removeAttribute("aria-describedby");
+          }
+        }
+      });
+    },
+    focusDailyEodAdminField(field) {
+      const drawer = document.querySelector(".eod-record-drawer");
+      const fields = [...(drawer?.querySelectorAll(`[data-eod-field="${field}"]`) || [])];
+      const fieldElement = fields.find((element) => element.getAttribute("aria-invalid") === "true") || fields[0];
+      const target = fieldElement?.matches("fieldset")
+        ? fieldElement.querySelector("input:not([disabled]), select:not([disabled]), textarea:not([disabled])")
+        : fieldElement;
+      target?.focus();
     },
     hydrateDailyEod(snapshot = {}, { preserveDraft = false } = {}) {
       const localDraft = this.dailyEodForm;
@@ -2228,21 +2319,25 @@ export function registerWorkspace(Alpine) {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       form.executiveOwners = toggleExecutiveOwner(form.executiveOwners, owner);
       if (target === "own") this.markDailyEodDirty();
+      else this.revalidateDailyEodAdmin();
     },
     addDailyEodEvidence(target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       form.evidenceLinks.push({ sourceType: "onedrive", label: "", url: "" });
       if (target === "own") this.markDailyEodDirty();
+      else this.revalidateDailyEodAdmin();
     },
     removeDailyEodEvidence(index, target = "own") {
       const form = target === "admin" ? this.dailyEodAdminForm : this.dailyEodForm;
       if (form.evidenceLinks.length === 1) {
         form.evidenceLinks.splice(0, 1, { sourceType: "onedrive", label: "", url: "" });
         if (target === "own") this.markDailyEodDirty();
+        else this.revalidateDailyEodAdmin();
         return;
       }
       form.evidenceLinks.splice(index, 1);
       if (target === "own") this.markDailyEodDirty();
+      else this.revalidateDailyEodAdmin();
     },
     async saveDailyEod(workflowStatus) {
       const payload = {
@@ -2256,7 +2351,7 @@ export function registerWorkspace(Alpine) {
         this.dailyEodFieldErrors = validateDailyEodFields(payload);
         const errors = Object.values(this.dailyEodFieldErrors);
         if (errors.length) {
-          this.dailyEodNotice = { tone: "error", text: `Review ${errors.length} required ${errors.length === 1 ? "field" : "fields"} before submitting.` };
+          this.dailyEodNotice = { tone: "error", kind: "validation", text: `Review ${errors.length} required ${errors.length === 1 ? "field" : "fields"} before submitting.` };
           this.$nextTick(() => {
             document.querySelector("#eod-error-summary")?.focus();
           });
@@ -2340,12 +2435,22 @@ export function registerWorkspace(Alpine) {
       this.dailyEodAdminForm = createDailyEodDraft(record);
       this.dailyEodAdminReason = "";
       this.dailyEodAdminNotice = null;
+      this.dailyEodAdminFieldErrors = {};
+      this.dailyEodAdminValidationAction = "save";
       this.$nextTick(() => {
         const drawer = document.querySelector(".eod-record-drawer");
         const title = drawer?.querySelector(".drawer-title h2");
         const close = drawer?.querySelector(".drawer-header .icon-button");
         const notice = document.querySelector(".eod-drawer-notice");
+        const errorSummary = document.querySelector("#eod-admin-error-summary");
         if (drawer && notice && notice.parentElement !== drawer) drawer.prepend(notice);
+        const form = drawer?.querySelector(".eod-drawer-form");
+        if (form && errorSummary && errorSummary.parentElement !== form) form.prepend(errorSummary);
+        if (form && !form.dataset.adminValidationBound) {
+          form.dataset.adminValidationBound = "true";
+          form.addEventListener("input", () => this.revalidateDailyEodAdmin());
+          form.addEventListener("change", () => this.revalidateDailyEodAdmin());
+        }
         if (drawer && title) {
           title.id = "eod-record-title";
           drawer.setAttribute("aria-labelledby", title.id);
@@ -2362,7 +2467,6 @@ export function registerWorkspace(Alpine) {
           record.lastEditedByName && `Last edited by ${record.lastEditedByName}${record.lastEditReason ? `: ${record.lastEditReason}` : ""}`,
         ].filter(Boolean).join(" · ") || "Draft record.";
         drawer?.querySelector(".drawer-title")?.after(metadata);
-        const form = drawer?.querySelector(".eod-drawer-form");
         const existingLinks = form?.querySelector(".eod-linked-evidence");
         existingLinks?.remove();
         const evidenceLinks = (record.evidenceLinks || []).filter((link) => {
@@ -2391,12 +2495,14 @@ export function registerWorkspace(Alpine) {
         }
         close?.setAttribute("aria-label", "Close EOD record");
         close?.focus();
+        this.syncDailyEodAdminStaticErrors();
       });
     },
     closeDailyEodRecord() {
       this.selectedDailyEod = null;
       this.dailyEodAdminReason = "";
       this.dailyEodAdminNotice = null;
+      this.dailyEodAdminFieldErrors = {};
       this.$nextTick(() => this.dailyEodReturnFocus?.focus?.());
     },
     trapDailyEodFocus(event) {
@@ -2422,20 +2528,18 @@ export function registerWorkspace(Alpine) {
     },
     async adminCompleteDailyEod(action = "complete") {
       if (this.access?.role !== "admin" || !this.selectedDailyEod) return;
-      if (this.dailyEodAdminReason.trim().length < 3) {
-        this.dailyEodAdminNotice = { tone: "error", text: "Add an edit or completion reason with at least three characters." };
-        return;
-      }
+      this.dailyEodAdminValidationAction = action;
       const payload = {
         ...this.dailyEodAdminForm,
         evidenceLinks: (this.dailyEodAdminForm.evidenceLinks || []).filter((link) => String(link.label || "").trim() || String(link.url || "").trim()),
       };
-      if ((["submitted", "completed"].includes(this.selectedDailyEod.workflowStatus) || action === "complete") && !this.dailyEodLegacyEvidence) {
-        const errors = validateDailyEodBrief(payload);
-        if (errors.length) {
-          this.dailyEodAdminNotice = { tone: "error", text: errors.join(" ") };
-          return;
-        }
+      this.dailyEodAdminFieldErrors = this.dailyEodAdminValidationErrors(action);
+      const errorCount = Object.keys(this.dailyEodAdminFieldErrors).length;
+      if (errorCount) {
+        this.dailyEodAdminNotice = { tone: "error", kind: "validation", text: `Review ${errorCount} administrator ${errorCount === 1 ? "field" : "fields"}.` };
+        this.syncDailyEodAdminStaticErrors();
+        this.$nextTick(() => document.querySelector("#eod-admin-error-summary")?.focus());
+        return;
       }
       this.savingDailyEodAdmin = true;
       this.dailyEodAdminNotice = null;
@@ -2449,7 +2553,7 @@ export function registerWorkspace(Alpine) {
           this.upsertPreviewDailyEod(saved);
         } else {
           saved = await adminUpdateDailyEodBrief(this.selectedDailyEod.id, payload, this.dailyEodAdminReason, this.selectedDailyEod.updatedAt, action);
-          await this.refreshDailyEod();
+          await this.refreshDailyEod({ preserveDraft: true });
           await this.searchDailyEodReports(this.dailyEodReports.page);
           const refreshed = this.dailyEodReports.items.find((item) => item.id === saved.id);
           saved = { ...saved, auditHistory: refreshed?.auditHistory || this.selectedDailyEod.auditHistory || [] };
@@ -2472,8 +2576,13 @@ export function registerWorkspace(Alpine) {
           const filters = this.dailyEodReportFilters;
           const query = filters.search.trim().toLowerCase();
           let items = (this.data.dailyEodReportItems || []).filter((item) => {
-            const matchesSearch = !query || [item.authorName, item.engagementManagerName, item.personInChargeName].some((value) => String(value || "").toLowerCase().includes(query));
+            const matchesSearch = !query || [item.authorName, item.engagementManagerName, item.personInChargeName, item.projectCode, item.projectName].some((value) => String(value || "").toLowerCase().includes(query));
             return matchesSearch
+              && (!filters.authorId || item.authorId === filters.authorId)
+              && (!filters.engagementManagerId || item.engagementManagerId === filters.engagementManagerId)
+              && (!filters.personInChargeId || item.personInChargeId === filters.personInChargeId)
+              && (!filters.projectId || item.projectId === filters.projectId)
+              && (!filters.projectLifecycle || item.projectLifecycle === filters.projectLifecycle)
               && (!filters.fromDate || item.briefDate >= filters.fromDate)
               && (!filters.toDate || item.briefDate <= filters.toDate)
               && (!filters.authorRole || item.authorRole === filters.authorRole)
@@ -2499,8 +2608,10 @@ export function registerWorkspace(Alpine) {
     },
     async refreshDailyEod({ preserveDraft = false, throwOnError = false } = {}) {
       const sequence = ++this.dailyEodRefreshSequence;
+      const hasUsableSnapshot = this.dailyEodState === "ready" && Boolean(this.dailyEod.serverDate);
       this.dailyEodError = "";
-      this.dailyEodState = "loading";
+      this.refreshingDailyEod = true;
+      if (!hasUsableSnapshot) this.dailyEodState = "loading";
       try {
         const snapshot = await loadDailyEod();
         if (sequence !== this.dailyEodRefreshSequence) return false;
@@ -2509,11 +2620,14 @@ export function registerWorkspace(Alpine) {
       } catch (reason) {
         if (sequence !== this.dailyEodRefreshSequence) return false;
         this.dailyEodError = readableError(reason, "The EOD brief is temporarily unavailable.");
-        this.dailyEodState = "failed";
+        this.dailyEodState = hasUsableSnapshot ? "ready" : "failed";
         if (throwOnError) throw reason;
         return false;
       } finally {
-        if (sequence === this.dailyEodRefreshSequence) this.scheduleDailyEodRefresh();
+        if (sequence === this.dailyEodRefreshSequence) {
+          this.refreshingDailyEod = false;
+          this.scheduleDailyEodRefresh();
+        }
       }
     },
     async refreshDashboard({ refreshInbox = true } = {}) {

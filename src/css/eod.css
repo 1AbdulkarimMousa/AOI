@@ -7,8 +7,11 @@
 .eod-recovery > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .eod-error-summary { display: grid; gap: 5px; }
 .eod-error-summary:focus { outline: 3px solid var(--rose); outline-offset: 3px; }
-.eod-field-error { color: var(--rose); font-size: 13px; line-height: 1.45; }
+.eod-field-error { display: block; color: var(--rose); font-size: 13px; font-weight: 700; line-height: 1.45; }
+.eod-owner-options .eod-field-error, .eod-status-options .eod-field-error { flex-basis: 100%; grid-column: 1 / -1; }
+.eod-error-summary .text-button { min-height: 44px; text-align: left; }
 .eod-legacy-warning { display: grid; gap: 5px; margin: 0 0 16px; }
+.eod-form-guidance { max-width: 65ch; margin: 6px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
 
 .eod-form label, .eod-report-filters label, .eod-admin-actions label { color: var(--ink); font-size: 14px; line-height: 1.45; }
 .eod-form input:not([type="checkbox"]):not([type="radio"]), .eod-form select, .eod-form textarea,
@@ -22,6 +25,7 @@
 .eod-form textarea { min-height: 104px; padding-block: 11px; }
 .eod-form [aria-invalid="true"] { border-color: var(--rose); box-shadow: 0 0 0 2px color-mix(in srgb, var(--rose) 22%, transparent); }
 .eod-owner-options label, .eod-status-options label, .eod-add-evidence, .eod-team-list > button, .eod-report-open { min-height: 44px; }
+.eod-oversight .filter-tabs button { min-width: 44px; }
 .eod-owner-options label { padding: 10px 12px; }
 .eod-owner-options input { width: 20px; height: 20px; }
 .eod-section-heading p, .eod-date-lockup span, .eod-date-lockup small, .eod-status-rail small, .eod-report-table small, .eod-audit strong, .eod-audit span, .eod-audit small { font-size: 12px; }
@@ -38,12 +42,14 @@
 .eod-report-open:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 .eod-report-open:focus-visible { outline: 3px solid var(--orange-dark); outline-offset: 5px; }
 
-@media (max-width: 1180px) {
+@media (max-width: 1400px) {
   .eod-layout { grid-template-columns: minmax(0, 1fr); }
   .eod-status-rail { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .eod-status-rail section { border-top: 0; border-inline-start: 1px solid var(--line); }
   .eod-status-rail section:first-child { border-inline-start: 0; }
   .eod-evidence-row { grid-template-columns: minmax(120px, .65fr) minmax(140px, .8fr) minmax(0, 1.5fr) 44px; }
+  .eod-report-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .eod-report-filters .button { grid-column: 1 / -1; }
 }
 
 @media (max-width: 820px) {

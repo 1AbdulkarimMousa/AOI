@@ -120,6 +120,7 @@ export const workspaceTemplate = String.raw`
            ${pmfCollectionTemplate}
 
            ${dailyEodTemplate}
+           <div id="eod-admin-error-summary" x-show="selectedDailyEod && Object.keys(dailyEodAdminFieldErrors).length" class="admin-notice error eod-error-summary eod-drawer-error-summary" role="alert" tabindex="-1"><strong>Review the administrator changes</strong><div><template x-for="([field,message]) in Object.entries(dailyEodAdminFieldErrors)" :key="field"><button type="button" class="text-button" :id="'eod-admin-summary-'+field" @click="focusDailyEodAdminField(field)" x-text="message"></button></template></div></div>
            <div x-show="selectedDailyEod && dailyEodAdminNotice" class="admin-notice eod-drawer-notice" :class="dailyEodAdminNotice?.tone" role="alert" x-text="dailyEodAdminNotice?.text"></div>
            <div x-show="view==='eod' && dailyEodReportError" class="admin-notice error eod-report-error" role="alert"><span x-text="dailyEodReportError"></span><button class="text-button" @click="searchDailyEodReports(dailyEodReports.page)">Retry reports</button></div>
 
